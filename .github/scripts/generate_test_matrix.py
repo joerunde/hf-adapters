@@ -119,6 +119,8 @@ def generate_matrices(exclude_models=None, only_models=None):
         "seq_classification": paths["seq_classification"],
         "token_classification": paths["token_classification"],
         "structured_decision": paths["structured_decision"],
+        # Perf only benchmarks an explicit list (tests/model_lists/perf.yaml), never the whole registry.
+        "perf": paths["causal"] if only_models else [],
     }
 
 
@@ -145,6 +147,7 @@ def format_for_github_actions(matrices):
         "seq_classification_matrix": json.dumps(matrices["seq_classification"]),
         "token_classification_matrix": json.dumps(matrices["token_classification"]),
         "structured_decision_matrix": json.dumps(matrices["structured_decision"]),
+        "perf_matrix": json.dumps(matrices["perf"]),
     }
 
 
@@ -235,6 +238,7 @@ def main():
         f"  Structured-decision models ({len(matrices['structured_decision'])}): "
         f"{', '.join(matrices['structured_decision'])}"
     )
+    print(f"  Perf models ({len(matrices['perf'])}): {', '.join(matrices['perf'])}")
 
     if args.exclude:
         print(f"\nExcluded models: {', '.join(args.exclude)}")
