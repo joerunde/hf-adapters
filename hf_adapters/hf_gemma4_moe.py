@@ -53,6 +53,10 @@ SPYRE_TP_CPU_STAGED_MODULES = {
     "model.language_model.layers.*.experts.gate_up_proj",
     "model.language_model.layers.*.experts.down_proj",
 }
+SPYRE_TP_DEFERRED_ROWWISE_MODULES = {
+    "model.language_model.layers.*.self_attn.o_proj",
+    "model.language_model.layers.*.mlp.down_proj",
+}
 
 __all__ = [
     "prepare_for_spyre",
@@ -180,6 +184,7 @@ class Gemma4MoEBlock(nn.Module):
             if self._tp_device_mesh is not None
             else None
         )
+        self.self_attn.tp_group_name = self._tp_group_name
         self.router = layer.router
         self.post_feedforward_layernorm_1 = layer.post_feedforward_layernorm_1
         self.pre_feedforward_layernorm_2 = layer.pre_feedforward_layernorm_2
@@ -249,11 +254,7 @@ class Gemma4MoEBlock(nn.Module):
             self.pre_feedforward_layernorm.weight,
             self.pre_feedforward_layernorm.eps,
         )
-        return _gemma4_rms_norm(
-            self.mlp(dense_input),
-            self.post_feedforward_layernorm_1.weight,
-            self.post_feedforward_layernorm_1.eps,
-        )
+        return self.mlp(dense_input)
 
     def _full_decode_forward(
         self,
@@ -281,7 +282,7 @@ class Gemma4MoEBlock(nn.Module):
 
     def _tp_decode_ffn(self, residual, layer_scalar):
         dense_out, moe_out = self._decode_ffn_local(residual)
-        moe_out = spyre_compiled_all_reduce(moe_out, self._tp_group_name)
+        dense_out, moe_out = self._tp_reduce_ffn(dense_out, moe_out)
         return self._finish_ffn(residual, dense_out, moe_out, layer_scalar)
 
     def _full_tp_decode_forward(
@@ -334,7 +335,22 @@ class Gemma4MoEBlock(nn.Module):
         moe_out = moe_out.to(expert_input.dtype)
         return dense_out, moe_out
 
+    def _tp_reduce_ffn(self, dense_out, moe_out):
+        hidden_size = dense_out.shape[-1]
+        partials = torch.cat((dense_out, moe_out.reshape_as(dense_out)), dim=-1)
+        reduced = spyre_compiled_all_reduce(partials, self._tp_group_name)
+        dense_out, moe_out = reduced.split(hidden_size, dim=-1)
+        dense_bias = getattr(self.mlp.down_proj, "_bias", None)
+        if dense_bias is not None:
+            dense_out = dense_out + dense_bias
+        return dense_out, moe_out
+
     def _finish_ffn(self, residual, dense_out, moe_out, layer_scalar):
+        dense_out = _gemma4_rms_norm(
+            dense_out,
+            self.post_feedforward_layernorm_1.weight,
+            self.post_feedforward_layernorm_1.eps,
+        )
         moe_out = _gemma4_rms_norm(
             moe_out.reshape_as(residual),
             self.post_feedforward_layernorm_2.weight,
@@ -353,7 +369,7 @@ class Gemma4MoEBlock(nn.Module):
 
     def _tp_prefill_ffn(self, residual, layer_scalar):
         dense_out, moe_out = self._prefill_ffn_local(residual)
-        moe_out = spyre_compiled_all_reduce(moe_out, self._tp_group_name)
+        dense_out, moe_out = self._tp_reduce_ffn(dense_out, moe_out)
         return self._finish_ffn(residual, dense_out, moe_out, layer_scalar)
 
     def _prefill_ffn_local(self, residual):
