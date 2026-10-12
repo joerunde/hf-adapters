@@ -1,0 +1,182 @@
+name: test_perf_scheduled
+run-name: test_perf_scheduled (${{ github.event.schedule == '0 4 * * 1' && 'weekly' || (github.event_name == 'schedule' && 'daily') || inputs.cadence || 'manual' }})
+
+# ---------------------------------------------------------------------------
+# Scheduled performance sweep, owned by hf-adapters itself.
+#
+# Runs spyre-perf-suite once per model in tests/model_lists/perf.yaml -- one
+# `spyre-perf-tests` matrix leg each -- on BOTH a daily and a weekly cadence:
+#
+#   - daily : 04:00 UTC every day except Monday  (cron "0 4 * * 0,2-6")
+#   - weekly: 04:00 UTC every Monday              (cron "0 4 * * 1")
+#
+# The two cadences are split across two cron entries that never overlap (Mon is
+# carved out of the daily one) so a given calendar day fires exactly one leg,
+# and `run-name`/the `cadence` label can tell daily from weekly for anyone
+# reading the Actions list or filtering ClickHouse by trigger.
+#
+# This is a thin scheduler: it resolves the perf model list the same way
+# integration-tests.yaml's resolve-models job does (yq over
+# tests/model_lists/perf.yaml), then delegates to the reusable
+# _test_matrix.yaml with test_type: perf -- exactly the path PR #663 added,
+# now driven on a schedule from inside this repo instead of only by an
+# external workflow_dispatch. Each leg ingests its benchmark XML into
+# ClickHouse inline (see _test_matrix.yaml's spyre-perf-tests job); nothing is
+# uploaded as a workflow artifact.
+#
+# workflow_dispatch is kept so the same flow can be triggered manually (and so
+# `cadence` can be forced for a one-off), mirroring test_daily.yaml.
+# ---------------------------------------------------------------------------
+on:
+  schedule:
+    # Daily at 04:00 UTC, every day EXCEPT Monday (Monday is the weekly slot below).
+    - cron: "0 4 * * 0,2-6"
+    # Weekly at 04:00 UTC every Monday.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or SHA of hf-adapters to check out and test
+        required: false
+        type: string
+        default: ''
+      repository:
+        description: |
+          Full clone URL of the hf-adapters fork to check out (e.g.
+          "https://github.com/myuser/hf-adapters.git"); leave empty for the base repo.
+        required: false
+        type: string
+        default: ''
+      runner_label:
+        description: |
+          Per-PR ephemeral runner-set IMAGE label to select for runs-on.
+          Empty keeps the run on the standing image_torch_spyre set.
+        required: false
+        type: string
+        default: ''
+      prebaked_image:
+        description: When true, skip resolve-torch-spyre and use the runner image's torch-spyre as-is.
+        required: false
+        type: boolean
+        default: false
+      cadence:
+        description: >-
+          Label recorded in run-name for a manual run (daily | weekly). Purely
+          cosmetic -- both cadences run the identical perf sweep; on a scheduled
+          run this is derived from which cron fired and this input is ignored.
+        required: false
+        type: choice
+        default: daily
+        options:
+          - daily
+          - weekly
+      models:
+        description: >-
+          Space-separated list of model paths to restrict the perf sweep to,
+          overriding tests/model_lists/perf.yaml. Must match paths exactly as
+          they appear in tests/model_registry.py, and must be causal-LM paths
+          (the perf matrix is built from the causal paths). Empty (default) =
+          every model in tests/model_lists/perf.yaml.
+        required: false
+        type: string
+        default: ''
+
+# Daily and weekly never collide (disjoint crons), but keep same-cadence
+# re-triggers from stacking: a fresh scheduled/manual run supersedes an
+# in-flight one on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  # actions: read is required by _test_matrix.yaml's collect-failed-suites job to list/download failed-suite-* artifacts via the REST API; reusable workflows can only narrow the caller's permissions, so this must be granted here too.
+  actions: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve the perf model list from tests/model_lists/perf.yaml into a
+  # space-separated string. Identical logic to integration-tests.yaml's
+  # resolve-models, pinned to test_type=perf: an empty list would make the
+  # perf matrix empty (generate_test_matrix.py: "perf" is [] when --only is
+  # unset), so the scheduler MUST resolve perf.yaml rather than pass '' through.
+  # An explicit `models` dispatch input overrides the file.
+  # ---------------------------------------------------------------------------
+  resolve-models:
+    name: Resolve perf model list
+    runs-on: ubuntu-latest
+    outputs:
+      models: ${{ steps.read-models.outputs.models }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
+          repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
+          sparse-checkout: tests/model_lists
+          sparse-checkout-cone-mode: false
+      - name: Read perf model list
+        id: read-models
+        env:
+          OVERRIDE_MODELS: ${{ inputs.models || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${OVERRIDE_MODELS}" ]]; then
+            echo "Using models from dispatch input: ${OVERRIDE_MODELS}"
+            echo "models=${OVERRIDE_MODELS}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          list="tests/model_lists/perf.yaml"
+          if [[ ! -f "${list}" ]]; then
+            echo "${list} is missing -- cannot run a scheduled perf sweep" >&2
+            exit 1
+          fi
+          # yq (mikefarah/yq) is preinstalled on ubuntu-latest runners.
+          models=$(yq '.models | join(" ")' "${list}")
+          if [[ -z "${models}" || "${models}" == "null" ]]; then
+            echo "${list} has no models" >&2
+            exit 1
+          fi
+          echo "Models from ${list}: ${models}"
+          echo "models=${models}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Delegate to the reusable matrix with test_type: perf. _test_matrix.yaml
+  # fans `models` out into one spyre-perf-tests leg per model and ingests each
+  # leg's benchmark XML into ClickHouse inline.
+  # ---------------------------------------------------------------------------
+  run-perf-tests:
+    needs: resolve-models
+    uses: ./.github/workflows/_test_matrix.yaml
+    # Reusable workflows get no secrets unless passed; without this HF_TOKEN resolves to "" in every test job.
+    secrets: inherit
+    with:
+      image_label: ${{ inputs.runner_label || 'image_torch_spyre' }}
+      extra_test_flags: -vvv -s
+      extra_test_flags_multi_spyre: -vvv -s
+      ref: ${{ inputs.ref || '' }}
+      repository: ${{ inputs.repository || '' }}
+      test_type: perf
+      models: ${{ needs.resolve-models.outputs.models }}
+      prebaked_image: ${{ inputs.prebaked_image }}
+
+  # ---------------------------------------------------------------------------
+  # Fan-in gate: single stable job name for pass/fail polling, matching the
+  # daily-test-result / integration-test-result convention.
+  # ---------------------------------------------------------------------------
+  perf-test-result:
+    name: Perf test result
+    runs-on: ubuntu-latest
+    needs: run-perf-tests
+    if: always()
+    steps:
+      - name: Evaluate perf results
+        run: |
+          RESULT="${{ needs.run-perf-tests.result }}"
+          echo "run-perf-tests result: ${RESULT}"
+          if [[ "${RESULT}" == "success" ]]; then
+            echo "Scheduled perf sweep passed."
+            exit 0
+          fi
+          echo "Scheduled perf sweep failed or was cancelled."
+          exit 1
