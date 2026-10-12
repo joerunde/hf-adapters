@@ -4,25 +4,35 @@ run-name: test_perf_scheduled (${{ github.event.schedule == '0 4 * * 1' && 'week
 # ---------------------------------------------------------------------------
 # Scheduled performance sweep, owned by hf-adapters itself.
 #
-# Runs spyre-perf-suite once per model in tests/model_lists/perf.yaml -- one
-# `spyre-perf-tests` matrix leg each -- on BOTH a daily and a weekly cadence:
+# Runs spyre-perf-suite once per model -- one `spyre-perf-tests` matrix leg
+# each -- on two cadences that differ ONLY in which model list they benchmark:
 #
 #   - daily : 04:00 UTC every day except Monday  (cron "0 4 * * 0,2-6")
+#             -> the curated short list in tests/model_lists/perf.yaml.
 #   - weekly: 04:00 UTC every Monday              (cron "0 4 * * 1")
+#             -> one representative causal model per adapter, taken straight
+#                from tests/model_registry.py's CAUSAL_PATHS
+#                (= _select_representative_paths(CAUSAL_LM_MODELS, ...)): the
+#                smallest model per causal adapter, plus any always_test
+#                entries, minus tests/model_lists/exclude.yaml. This is the
+#                same representative set the PR/push matrix uses for its causal
+#                suite, so the weekly perf sweep tracks adapter coverage
+#                automatically as adapters are added or removed.
 #
 # The two cadences are split across two cron entries that never overlap (Mon is
 # carved out of the daily one) so a given calendar day fires exactly one leg,
 # and `run-name`/the `cadence` label can tell daily from weekly for anyone
 # reading the Actions list or filtering ClickHouse by trigger.
 #
-# This is a thin scheduler: it resolves the perf model list the same way
-# integration-tests.yaml's resolve-models job does (yq over
-# tests/model_lists/perf.yaml), then delegates to the reusable
-# _test_matrix.yaml with test_type: perf -- exactly the path PR #663 added,
-# now driven on a schedule from inside this repo instead of only by an
-# external workflow_dispatch. Each leg ingests its benchmark XML into
-# ClickHouse inline (see _test_matrix.yaml's spyre-perf-tests job); nothing is
-# uploaded as a workflow artifact.
+# This is a thin scheduler: resolve-models produces a space-separated model
+# list (perf.yaml for daily, CAUSAL_PATHS for weekly), then delegates to the
+# reusable _test_matrix.yaml with test_type: perf -- the path PR #663 added,
+# now driven on a schedule from inside this repo instead of only by an external
+# workflow_dispatch. _test_matrix.yaml turns the list into one --only entry per
+# model, so the perf matrix is exactly that set (every representative causal
+# path is in ALL_CAUSAL_PATHS, so the only_models guard accepts it). Each leg
+# ingests its benchmark XML into ClickHouse inline (see _test_matrix.yaml's
+# spyre-perf-tests job); nothing is uploaded as a workflow artifact.
 #
 # workflow_dispatch is kept so the same flow can be triggered manually (and so
 # `cadence` can be forced for a one-off), mirroring test_daily.yaml.
@@ -61,9 +71,10 @@ on:
         default: false
       cadence:
         description: >-
-          Label recorded in run-name for a manual run (daily | weekly). Purely
-          cosmetic -- both cadences run the identical perf sweep; on a scheduled
-          run this is derived from which cron fired and this input is ignored.
+          Which model list a MANUAL run benchmarks: "daily" uses
+          tests/model_lists/perf.yaml, "weekly" uses the representative causal
+          set (CAUSAL_PATHS) from tests/model_registry.py. On a scheduled run
+          this is derived from which cron fired and this input is ignored.
         required: false
         type: choice
         default: daily
@@ -73,10 +84,11 @@ on:
       models:
         description: >-
           Space-separated list of model paths to restrict the perf sweep to,
-          overriding tests/model_lists/perf.yaml. Must match paths exactly as
-          they appear in tests/model_registry.py, and must be causal-LM paths
-          (the perf matrix is built from the causal paths). Empty (default) =
-          every model in tests/model_lists/perf.yaml.
+          overriding BOTH the daily perf.yaml list and the weekly CAUSAL_PATHS
+          list. Must match paths exactly as they appear in
+          tests/model_registry.py, and must be causal-LM paths (the perf matrix
+          is built from the causal paths). Empty (default) = the list for the
+          resolved cadence.
         required: false
         type: string
         default: ''
@@ -96,12 +108,19 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Resolve the perf model list from tests/model_lists/perf.yaml into a
-  # space-separated string. Identical logic to integration-tests.yaml's
-  # resolve-models, pinned to test_type=perf: an empty list would make the
-  # perf matrix empty (generate_test_matrix.py: "perf" is [] when --only is
-  # unset), so the scheduler MUST resolve perf.yaml rather than pass '' through.
-  # An explicit `models` dispatch input overrides the file.
+  # Resolve the perf model list into a space-separated string, by cadence:
+  #   - weekly: CAUSAL_PATHS from tests/model_registry.py (one representative
+  #             causal model per adapter) -- imported directly from the registry
+  #             so the "representative per adapter" selection is never duplicated
+  #             here. SPYRE_INCLUDE_GATED=1 so the set matches what the Spyre pod
+  #             can actually load (gated adapters pick their canonical gated
+  #             checkpoint); the perf legs run on the pod where HF_TOKEN exists.
+  #   - daily : tests/model_lists/perf.yaml (same yq read integration-tests.yaml
+  #             uses).
+  # test_type is pinned to perf: an empty list would make the perf matrix empty
+  # (generate_test_matrix.py: "perf" is [] when --only is unset), so this job
+  # MUST emit a non-empty list rather than pass '' through -- hence the exit-1
+  # guards below. An explicit `models` dispatch input overrides either list.
   # ---------------------------------------------------------------------------
   resolve-models:
     name: Resolve perf model list
@@ -113,22 +132,46 @@ jobs:
         with:
           ref: ${{ inputs.ref || '' }}
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
-          sparse-checkout: tests/model_lists
-          sparse-checkout-cone-mode: false
-      - name: Read perf model list
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Resolve model list
         id: read-models
         env:
           OVERRIDE_MODELS: ${{ inputs.models || '' }}
+          # Weekly on the Monday cron, or a manual run that forced cadence=weekly.
+          IS_WEEKLY: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 4 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.cadence == 'weekly') }}
         run: |
           set -euo pipefail
+
+          # An explicit dispatch override wins for either cadence.
           if [[ -n "${OVERRIDE_MODELS}" ]]; then
             echo "Using models from dispatch input: ${OVERRIDE_MODELS}"
             echo "models=${OVERRIDE_MODELS}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          if [[ "${IS_WEEKLY}" == "true" ]]; then
+            # Representative causal model per adapter, straight from the registry
+            # (CAUSAL_PATHS == _select_representative_paths(CAUSAL_LM_MODELS, ...)).
+            # The registry imports only pytest at module load (no torch/transformers).
+            python -m pip install --upgrade pip >/dev/null
+            pip install pytest >/dev/null
+            models=$(SPYRE_INCLUDE_GATED=1 python -c "import tests.model_registry as r; print(' '.join(r.CAUSAL_PATHS))")
+            if [[ -z "${models}" ]]; then
+              echo "CAUSAL_PATHS resolved empty -- registry/exclude.yaml misconfigured?" >&2
+              exit 1
+            fi
+            echo "Weekly perf models (CAUSAL_PATHS, one representative per causal adapter): ${models}"
+            echo "models=${models}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Daily: curated short list.
           list="tests/model_lists/perf.yaml"
           if [[ ! -f "${list}" ]]; then
-            echo "${list} is missing -- cannot run a scheduled perf sweep" >&2
+            echo "${list} is missing -- cannot run the daily perf sweep" >&2
             exit 1
           fi
           # yq (mikefarah/yq) is preinstalled on ubuntu-latest runners.
@@ -137,7 +180,7 @@ jobs:
             echo "${list} has no models" >&2
             exit 1
           fi
-          echo "Models from ${list}: ${models}"
+          echo "Daily perf models from ${list}: ${models}"
           echo "models=${models}" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
