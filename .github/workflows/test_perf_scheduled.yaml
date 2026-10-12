@@ -112,9 +112,9 @@ jobs:
   #   - weekly: CAUSAL_PATHS from tests/model_registry.py (one representative
   #             causal model per adapter) -- imported directly from the registry
   #             so the "representative per adapter" selection is never duplicated
-  #             here. SPYRE_INCLUDE_GATED=1 so the set matches what the Spyre pod
-  #             can actually load (gated adapters pick their canonical gated
-  #             checkpoint); the perf legs run on the pod where HF_TOKEN exists.
+  #             here. Use the registry's default model visibility so the list
+  #             matches the downstream generate-matrix job's ALL_CAUSAL_PATHS
+  #             validation exactly.
   #   - daily : tests/model_lists/perf.yaml (same yq read integration-tests.yaml
   #             uses).
   # test_type is pinned to perf: an empty list would make the perf matrix empty
@@ -158,7 +158,7 @@ jobs:
             # The registry imports only pytest at module load (no torch/transformers).
             python -m pip install --upgrade pip >/dev/null
             pip install pytest >/dev/null
-            models=$(SPYRE_INCLUDE_GATED=1 python -c "import tests.model_registry as r; print(' '.join(r.CAUSAL_PATHS))")
+            models=$(python -c "import tests.model_registry as r; print(' '.join(r.CAUSAL_PATHS))")
             if [[ -z "${models}" ]]; then
               echo "CAUSAL_PATHS resolved empty -- registry/exclude.yaml misconfigured?" >&2
               exit 1
