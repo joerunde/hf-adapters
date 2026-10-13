@@ -42,7 +42,10 @@ from hf_adapters.hf_gemma4 import (
     _setup_gemma4_text_decoder,
     spyre_tp_grouped_colwise_modules,
 )
-from hf_adapters.spyre_tensor_parallel import spyre_compiled_all_reduce
+from hf_adapters.spyre_tensor_parallel import (
+    SPYRE_ROWWISE_DEFERRED_REDUCE,
+    spyre_compiled_all_reduce,
+)
 from hf_adapters.swa_attention import allocate_swa_caches
 
 # The HF checkpoint conversion first merges each expert's 2D gate/up tensors
@@ -143,6 +146,38 @@ def _moe_route_persistent_packed(
     return packed @ route_identity
 
 
+def _gemma4_moe_tp_group_name(layer):
+    modules = (layer.self_attn.o_proj, layer.mlp.down_proj, layer.experts)
+    device_meshes = [getattr(module, "_hf_device_mesh", None) for module in modules]
+    if not any(mesh is not None for mesh in device_meshes):
+        return None
+    if any(mesh is None for mesh in device_meshes):
+        raise ValueError(
+            "Gemma 4 MoE TP requires o_proj, dense down_proj, and experts "
+            "on a device mesh"
+        )
+
+    rowwise_projections = modules[:2]
+    if any(
+        getattr(projection, "_hf_tp_plan", None) != SPYRE_ROWWISE_DEFERRED_REDUCE
+        for projection in rowwise_projections
+    ):
+        raise ValueError(
+            "Gemma 4 MoE compiled TP requires deferred-rowwise o_proj and "
+            "dense down_proj"
+        )
+    if getattr(layer.experts, "_hf_tp_plan", None) != "moe_tp_experts":
+        raise ValueError("Gemma 4 MoE compiled TP requires moe_tp_experts")
+
+    group_names = [mesh.get_group().group_name for mesh in device_meshes]
+    if len(set(group_names)) != 1:
+        raise ValueError(
+            "Gemma 4 MoE o_proj, dense down_proj, and experts must use the "
+            "same TP group"
+        )
+    return group_names[0]
+
+
 class Gemma4MoEBlock(nn.Module):
     """Gemma 4 decoder block with parallel dense and sparse FFNs."""
 
@@ -178,12 +213,7 @@ class Gemma4MoEBlock(nn.Module):
         self.pre_feedforward_layernorm = layer.pre_feedforward_layernorm
         self.post_feedforward_layernorm = layer.post_feedforward_layernorm
         self.experts = layer.experts
-        self._tp_device_mesh = getattr(self.experts, "_hf_device_mesh", None)
-        self._tp_group_name = (
-            self._tp_device_mesh.get_group().group_name
-            if self._tp_device_mesh is not None
-            else None
-        )
+        self._tp_group_name = _gemma4_moe_tp_group_name(layer)
         self.self_attn.tp_group_name = self._tp_group_name
         self.router = layer.router
         self.post_feedforward_layernorm_1 = layer.post_feedforward_layernorm_1
@@ -199,12 +229,12 @@ class Gemma4MoEBlock(nn.Module):
         self._moe_rms_eps = self.router.eps
         decode_forward = (
             self._full_tp_decode_forward
-            if self._tp_device_mesh is not None
+            if self._tp_group_name is not None
             else self._full_decode_forward
         )
         prefill_ffn = (
             self._tp_prefill_ffn
-            if self._tp_device_mesh is not None
+            if self._tp_group_name is not None
             else self._prefill_ffn
         )
         self._compiled_decode = torch.compile(

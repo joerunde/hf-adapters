@@ -74,9 +74,10 @@ class _ToyModel(nn.Module):
 
 
 class _FakeMesh:
-    def __init__(self, size, rank):
+    def __init__(self, size, rank, group_name="test_group"):
         self._size = size
         self._rank = rank
+        self._group_name = group_name
 
     def size(self):
         return self._size
@@ -84,9 +85,8 @@ class _FakeMesh:
     def get_local_rank(self):
         return self._rank
 
-    @staticmethod
-    def get_group():
-        return SimpleNamespace(group_name="test_group")
+    def get_group(self):
+        return SimpleNamespace(group_name=self._group_name)
 
 
 def test_reassemble_dim0_all_gather_on_last_dimension():
@@ -355,22 +355,26 @@ def test_prepare_spyre_tp_plan_translates_and_covers_placement():
     assert result["lm_head"] == SPYRE_REPLICATED_LINEAR
 
 
-def test_prepare_spyre_tp_plan_defers_selected_rowwise_reduction():
+@pytest.mark.parametrize(
+    "module_name",
+    ["model.layers.*.o_proj", "model.layers.0.o_proj"],
+)
+def test_prepare_spyre_tp_plan_defers_selected_rowwise_reduction(module_name):
     result = prepare_spyre_tp_plan(
         _ToyModel(),
-        {"model.layers.*.o_proj": "rowwise"},
+        {module_name: "rowwise"},
         deferred_rowwise_modules={"model.layers.*.o_proj"},
     )
 
-    assert result["model.layers.*.o_proj"] == SPYRE_ROWWISE_DEFERRED_REDUCE
+    assert result[module_name] == SPYRE_ROWWISE_DEFERRED_REDUCE
 
 
 def test_prepare_spyre_tp_plan_rejects_incompatible_deferred_style():
     with pytest.raises(ValueError, match="deferred-reduction.*colwise"):
         prepare_spyre_tp_plan(
             _ToyModel(),
-            {"model.layers.*.q_proj": "colwise"},
-            deferred_rowwise_modules={"model.layers.*.q_proj"},
+            {"model.layers.0.o_proj": "colwise"},
+            deferred_rowwise_modules={"model.layers.*.o_proj"},
         )
 
 
@@ -539,6 +543,71 @@ def test_gemma4_tp4_groups_kv_only_when_a_shard_would_split_a_head():
     assert result[f"{prefix}.*.self_attn.o_proj"] == SPYRE_ROWWISE
     assert f"{prefix}.1.self_attn.k_proj" not in result
     assert f"{prefix}.1.self_attn.v_proj" not in result
+
+
+def _gemma4_moe_tp_layer(group_names=None):
+    layer = SimpleNamespace(
+        self_attn=SimpleNamespace(o_proj=nn.Linear(2, 2)),
+        mlp=SimpleNamespace(down_proj=nn.Linear(2, 2)),
+        experts=nn.Module(),
+    )
+    if group_names is not None:
+        modules = (layer.self_attn.o_proj, layer.mlp.down_proj, layer.experts)
+        plans = (
+            SPYRE_ROWWISE_DEFERRED_REDUCE,
+            SPYRE_ROWWISE_DEFERRED_REDUCE,
+            "moe_tp_experts",
+        )
+        for module, plan, group_name in zip(modules, plans, group_names, strict=True):
+            module._hf_device_mesh = _FakeMesh(2, 0, group_name)
+            module._hf_tp_plan = plan
+    return layer
+
+
+def test_gemma4_moe_tp_accepts_no_tp_or_standard_placement():
+    assert hf_gemma4_moe._gemma4_moe_tp_group_name(_gemma4_moe_tp_layer()) is None
+    assert (
+        hf_gemma4_moe._gemma4_moe_tp_group_name(
+            _gemma4_moe_tp_layer(("test_group",) * 3)
+        )
+        == "test_group"
+    )
+
+
+def test_gemma4_moe_tp_rejects_partial_placement():
+    layer = _gemma4_moe_tp_layer(("test_group",) * 3)
+    del layer.mlp.down_proj._hf_device_mesh
+
+    with pytest.raises(
+        ValueError, match="requires o_proj, dense down_proj, and experts"
+    ):
+        hf_gemma4_moe._gemma4_moe_tp_group_name(layer)
+
+
+@pytest.mark.parametrize(
+    ("module_path", "plan", "message"),
+    [
+        ("self_attn.o_proj", SPYRE_ROWWISE, "deferred-rowwise"),
+        ("mlp.down_proj", SPYRE_ROWWISE, "deferred-rowwise"),
+        ("experts", SPYRE_ROWWISE, "moe_tp_experts"),
+    ],
+)
+def test_gemma4_moe_tp_rejects_incompatible_styles(module_path, plan, message):
+    layer = _gemma4_moe_tp_layer(("test_group",) * 3)
+    module = layer
+    for name in module_path.split("."):
+        module = getattr(module, name)
+    module._hf_tp_plan = plan
+
+    with pytest.raises(ValueError, match=message):
+        hf_gemma4_moe._gemma4_moe_tp_group_name(layer)
+
+
+def test_gemma4_moe_tp_rejects_mismatched_groups():
+    layer = _gemma4_moe_tp_layer(("test_group", "other_group", "test_group"))
+
+    with pytest.raises(ValueError, match="same TP group"):
+        hf_gemma4_moe._gemma4_moe_tp_group_name(layer)
 
 
 def test_gemma4_attention_explicitly_reduces_deferred_output(monkeypatch):

@@ -430,7 +430,7 @@ def prepare_spyre_tp_plan(
     """
     register_spyre_tp_styles()
     staged = set(cpu_staged_modules)
-    deferred_rowwise_modules = set(deferred_rowwise_modules)
+    deferred_rowwise_plan = dict.fromkeys(deferred_rowwise_modules, "")
     cpu_replicated_modules = set(cpu_replicated_modules)
     replicated_linear_modules = set(replicated_linear_modules)
     replicated_embedding_modules = set(replicated_embedding_modules)
@@ -446,7 +446,7 @@ def prepare_spyre_tp_plan(
                     f"CPU-staged TP module {module_name!r} uses unsupported "
                     f"style {style!r}"
                 ) from error
-        elif module_name in deferred_rowwise_modules:
+        elif _matches_plan(f"{module_name}.weight", deferred_rowwise_plan):
             if style != "rowwise":
                 raise ValueError(
                     f"deferred-reduction TP module {module_name!r} uses "
