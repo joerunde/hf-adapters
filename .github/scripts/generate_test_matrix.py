@@ -26,7 +26,10 @@ sys.path.insert(0, str(project_root))
 import tests.model_registry  # noqa: E402
 
 
-def generate_matrices(exclude_models=None, only_models=None):
+def generate_matrices(
+    exclude_models: list[str] | None = None,
+    only_models: list[str] | None = None,
+) -> dict[str, list[str]]:
     """
     Generate test matrices from the model registry.
 
@@ -114,8 +117,10 @@ def generate_matrices(exclude_models=None, only_models=None):
         "reranker": paths["reranker"],
         "seq_classification": paths["seq_classification"],
         "token_classification": paths["token_classification"],
-        # Perf only benchmarks an explicit list (tests/model_lists/perf.yaml), never the whole registry.
-        "perf": paths["causal"] if only_models else [],
+        # Explicit --only lists are already reflected in paths["causal"]. With
+        # no allowlist, perf follows the same representative CAUSAL_PATHS default
+        # as the PR/push causal suites.
+        "perf": paths["causal"],
     }
 
 

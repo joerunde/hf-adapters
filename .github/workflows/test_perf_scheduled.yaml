@@ -25,14 +25,14 @@ run-name: test_perf_scheduled (${{ github.event.schedule == '0 4 * * 1' && 'week
 # reading the Actions list or filtering ClickHouse by trigger.
 #
 # This is a thin scheduler: resolve-models produces a space-separated model
-# list (perf.yaml for daily, CAUSAL_PATHS for weekly), then delegates to the
+# list for daily runs and leaves it empty for weekly runs, then delegates to the
 # reusable _test_matrix.yaml with test_type: perf -- the path PR #663 added,
 # now driven on a schedule from inside this repo instead of only by an external
-# workflow_dispatch. _test_matrix.yaml turns the list into one --only entry per
-# model, so the perf matrix is exactly that set (every representative causal
-# path is in ALL_CAUSAL_PATHS, so the only_models guard accepts it). Each leg
-# ingests its benchmark XML into ClickHouse inline (see _test_matrix.yaml's
-# spyre-perf-tests job); nothing is uploaded as a workflow artifact.
+# workflow_dispatch. The shared matrix generator interprets an empty list as
+# its representative CAUSAL_PATHS default, exactly as it does for the PR/push
+# causal suites; an explicit list becomes --only entries. Each leg ingests its
+# benchmark XML into ClickHouse inline (see _test_matrix.yaml's spyre-perf-tests
+# job); nothing is uploaded as a workflow artifact.
 #
 # workflow_dispatch is kept so the same flow can be triggered manually (and so
 # `cadence` can be forced for a one-off), mirroring test_daily.yaml.
@@ -109,18 +109,14 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # Resolve the perf model list into a space-separated string, by cadence:
-  #   - weekly: CAUSAL_PATHS from tests/model_registry.py (one representative
-  #             causal model per adapter) -- imported directly from the registry
-  #             so the "representative per adapter" selection is never duplicated
-  #             here. Use the registry's default model visibility so the list
-  #             matches the downstream generate-matrix job's ALL_CAUSAL_PATHS
-  #             validation exactly.
+  #   - weekly: empty, so the shared matrix generator uses CAUSAL_PATHS directly
+  #             (one representative causal model per adapter), just like the
+  #             PR/push causal suites.
   #   - daily : tests/model_lists/perf.yaml (same yq read integration-tests.yaml
   #             uses).
-  # test_type is pinned to perf: an empty list would make the perf matrix empty
-  # (generate_test_matrix.py: "perf" is [] when --only is unset), so this job
-  # MUST emit a non-empty list rather than pass '' through -- hence the exit-1
-  # guards below. An explicit `models` dispatch input overrides either list.
+  # An explicit `models` dispatch input overrides either cadence. The daily list
+  # still fails closed when missing or empty rather than silently falling back to
+  # the much larger weekly representative set.
   # ---------------------------------------------------------------------------
   resolve-models:
     name: Resolve perf model list
@@ -132,10 +128,6 @@ jobs:
         with:
           ref: ${{ inputs.ref || '' }}
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
       - name: Resolve model list
         id: read-models
         env:
@@ -153,18 +145,8 @@ jobs:
           fi
 
           if [[ "${IS_WEEKLY}" == "true" ]]; then
-            # Representative causal model per adapter, straight from the registry
-            # (CAUSAL_PATHS == _select_representative_paths(CAUSAL_LM_MODELS, ...)).
-            # The registry imports only pytest at module load (no torch/transformers).
-            python -m pip install --upgrade pip >/dev/null
-            pip install pytest >/dev/null
-            models=$(python -c "import tests.model_registry as r; print(' '.join(r.CAUSAL_PATHS))")
-            if [[ -z "${models}" ]]; then
-              echo "CAUSAL_PATHS resolved empty -- registry/exclude.yaml misconfigured?" >&2
-              exit 1
-            fi
-            echo "Weekly perf models (CAUSAL_PATHS, one representative per causal adapter): ${models}"
-            echo "models=${models}" >> "$GITHUB_OUTPUT"
+            echo "Weekly perf uses the shared CAUSAL_PATHS default."
+            echo "models=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 

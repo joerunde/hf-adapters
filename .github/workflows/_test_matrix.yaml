@@ -70,7 +70,9 @@ on:
           token_classification_compare, model_module);
           "integration" runs token_compare and model_components;
           "regression"/"trunk" (default: regression) run the
-          standard Spyre suite set. "perf" runs only spyre-perf-tests, over the `models` list.
+          standard Spyre suite set. "perf" runs only spyre-perf-tests, over the
+          explicit `models` list or the representative causal set when `models`
+          is empty.
           The tests/spyre/edge_cases/ suite is opted
           into separately via the edge_cases_only boolean input below -- it
           is deliberately outside this shared test_type contract so callers
@@ -1888,7 +1890,8 @@ jobs:
           job_key: edge_cases
           payload: '{"model_key": ${{ toJSON(matrix.model_key) }}, "test_file": ${{ toJSON(matrix.test_file) }}}'
 
-  # test_type=perf only: one spyre-perf-suite leg per tests/model_lists/perf.yaml model, ingested inline (never uploaded).
+  # test_type=perf only: one spyre-perf-suite leg per explicit model, or per
+  # representative causal model when the input is empty; ingested inline (never uploaded).
   spyre-perf-tests:
     name: Spyre perf (${{ matrix.model_key }})
     needs: [generate-matrix, resolve-test-type, resolve-torch-spyre, artifact-identity]
