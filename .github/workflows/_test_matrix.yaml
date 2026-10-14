@@ -567,7 +567,7 @@ jobs:
       - name: Run adapter coverage test
         run: |
           echo "Checking that all adapter files are registered in model_registry.py..."
-          python -m pip install --quiet pytest
+          python -m pip install --quiet pytest PyYAML
           source .github/scripts/run-with-pod-stdout.sh
           run_teed make adapter-coverage-tests PYTEST="python -m pytest" JUNIT_XML=junit-adapter-coverage.xml
           echo "Adapter coverage check passed."

@@ -812,6 +812,16 @@ CAUSAL_PATHS: list[str] = _exclude(
         predicate=lambda info: info.get("kind") not in ("dspark_draft", "diffusion"),
     )
 )
+
+# Intentionally mirrors CAUSAL_PATHS for now; its policy will diverge later.
+WEEKLY_PERF_PATHS: list[str] = _exclude(
+    _select_representative_paths(
+        CAUSAL_LM_MODELS,
+        include_gated=_include_gated_flag,
+        predicate=lambda info: info.get("kind") not in ("dspark_draft", "diffusion"),
+    )
+)
+
 MULTICARD_SMOKE_PATHS: list[str] = _exclude(
     [
         info["path"]
