@@ -29,7 +29,7 @@ weekly:
   - allenai/OLMoE-1B-7B-0924
   - unsloth/gemma-2-2b-it
   - unsloth/gemma-3-1b-it
-  - google/gemma-4-E2B-it
-  - google/gemma-4-E4B
   - google/gemma-4-12B-it
   - google/gemma-4-26B-A4B-it
+  - google/gemma-4-E2B-it
+  - google/gemma-4-E4B
