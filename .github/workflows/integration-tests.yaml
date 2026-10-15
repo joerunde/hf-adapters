@@ -106,16 +106,16 @@ on:
       perf_schedule:
         description: >-
           Only used when test_type=perf: which section of
-          tests/model_lists/perf.yaml to benchmark. "daily" is the small
+          tests/model_lists/perf.yaml to benchmark. "nightly" is the small
           hand-picked large-model set; "weekly" contains the registry entries
           marked weekly_perf (exposed through WEEKLY_PERF_PATHS). Ignored for
           every other test_type.
           Mirrors the Makefile's PERF_SCHEDULE variable.
         required: false
         type: choice
-        default: daily
+        default: nightly
         options:
-          - daily
+          - nightly
           - weekly
       run_id:
         description: >-
@@ -238,7 +238,7 @@ jobs:
         id: read-models
         env:
           TEST_TYPE: ${{ inputs.test_type || 'integration' }}
-          PERF_SCHEDULE: ${{ inputs.perf_schedule || 'daily' }}
+          PERF_SCHEDULE: ${{ inputs.perf_schedule || 'nightly' }}
         run: |
           set -euo pipefail
           list="tests/model_lists/${TEST_TYPE}.yaml"
@@ -248,13 +248,13 @@ jobs:
             echo "models=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # The perf tier's list is nested (daily:/weekly:); every other tier is
+          # The perf tier's list is nested (nightly:/weekly:); every other tier is
           # a flat top-level `models:` list. Pick the matching yq query -- this
           # mirrors the Makefile's PERF_SCHEDULE section selection.
           # yq (mikefarah/yq) is preinstalled on ubuntu-latest runners.
           if [[ "${TEST_TYPE}" == "perf" ]]; then
-            if [[ "${PERF_SCHEDULE}" != "daily" && "${PERF_SCHEDULE}" != "weekly" ]]; then
-              echo "perf_schedule must be daily or weekly (got '${PERF_SCHEDULE}')" >&2
+            if [[ "${PERF_SCHEDULE}" != "nightly" && "${PERF_SCHEDULE}" != "weekly" ]]; then
+              echo "perf_schedule must be nightly or weekly (got '${PERF_SCHEDULE}')" >&2
               exit 1
             fi
             query=".${PERF_SCHEDULE}.models | join(\" \")"

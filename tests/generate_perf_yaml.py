@@ -16,7 +16,7 @@
 
 The ``weekly.models`` list contains the causal-LM registry entries marked
 ``weekly_perf`` (exposed through ``WEEKLY_PERF_PATHS``), so it is generated here
-rather than hand-maintained. The ``daily.models`` list is a hand-picked subset
+rather than hand-maintained. The ``nightly.models`` list is a hand-picked subset
 of large models and is preserved verbatim from the existing file.
 
 Run this whenever the registry changes and ``test_perf_coverage.py`` fails:
@@ -56,15 +56,15 @@ def _load_existing(path: Path) -> dict[str, object]:
 
 
 def build_perf_config() -> dict[str, dict[str, list[str]]]:
-    """Build the perf.yaml document: generated ``weekly``, preserved ``daily``."""
+    """Build the perf.yaml document: generated ``weekly``, preserved ``nightly``."""
     existing: dict[str, object] = _load_existing(PERF_YAML_PATH)
-    daily: object = existing.get("daily") if isinstance(existing, dict) else None
-    daily_models: list[str] = []
-    if isinstance(daily, dict) and isinstance(daily.get("models"), list):
-        daily_models = [str(m) for m in daily["models"]]
+    nightly: object = existing.get("nightly") if isinstance(existing, dict) else None
+    nightly_models: list[str] = []
+    if isinstance(nightly, dict) and isinstance(nightly.get("models"), list):
+        nightly_models = [str(m) for m in nightly["models"]]
 
     return {
-        "daily": {"models": daily_models},
+        "nightly": {"models": nightly_models},
         "weekly": {"models": list(WEEKLY_PERF_PATHS)},
     }
 

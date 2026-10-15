@@ -1,6 +1,6 @@
 # Models benchmarked by TEST_TYPE=perf (one GHA matrix leg each); must be causal-LM paths in tests/model_registry.py.
 # weekly.models is generated from WEEKLY_PERF_PATHS by tests/generate_perf_yaml.py -- do not edit by hand.
-daily:
+nightly:
   models:
   - ibm-granite/granite-4.1-8b
   - mistralai/Ministral-3-14B-Instruct-2512

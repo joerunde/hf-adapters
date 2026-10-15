@@ -82,7 +82,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "Variables: TEST_TYPE=unit|integration|regression|trunk|perf|<space-separated suite keys, e.g. smoke clip edge_cases model_support> (default regression),"
 	@echo "  MODEL_KEY (pytest -k filter, default all), MODEL_PATH (exact model path via --model-path, overrides registry parametrization),"
-	@echo "  PERF_SCHEDULE=daily|weekly (TEST_TYPE=perf: which perf.yaml section to run, default daily), PERF_REPORT=split|combined (default '$(PERF_REPORT)'),"
+	@echo "  PERF_SCHEDULE=nightly|weekly (TEST_TYPE=perf: which perf.yaml section to run, default nightly), PERF_REPORT=split|combined (default '$(PERF_REPORT)'),"
 	@echo "  EDGE_CASE_FILE=<file>.py (edge_cases: one file), MODULE_CONFIG=<file>.yaml (model_module: one config), MODULE_TEST_FILTER (model_module: pytest -k),"
 	@echo "  MODEL_SUPPORT_TOP_K (default $(MODEL_SUPPORT_TOP_K)), MODEL_SUPPORT_MAX_PARAMS (default $(MODEL_SUPPORT_MAX_PARAMS)),"
 	@echo "  PYTEST_ARGS (default '$(PYTEST_ARGS)'), JUNIT_XML (single-suite targets only), RESULTS_DIR (default '$(RESULTS_DIR)')"
@@ -145,11 +145,11 @@ edge-cases-tests: ## Run edge-case tests (suite key: edge_cases; EDGE_CASE_FILE=
 	$(PYTEST) $(PYTEST_ARGS) --suite edge_cases --run-slow $(if $(EDGE_CASE_FILE),tests/spyre/edge_cases/$(EDGE_CASE_FILE),tests/spyre/edge_cases/) $(K_ARGS) $(MODEL_PATH_ARGS) $(if $(JUNIT_XML),--junitxml=$(JUNIT_XML))
 
 # PERF_SCHEDULE selects which section of tests/model_lists/perf.yaml the `tests`
-# target reads models from when TEST_TYPE=perf: `daily` (the small hand-picked
+# target reads models from when TEST_TYPE=perf: `nightly` (the small hand-picked
 # large-model set) or `weekly` (the registry entries marked `weekly_perf`,
 # exposed through WEEKLY_PERF_PATHS). Only consulted for the perf tier -- other
 # tiers' lists are flat (no sections). An explicit MODEL_PATH still overrides it.
-PERF_SCHEDULE ?= daily
+PERF_SCHEDULE ?= nightly
 
 # split: per-model file names, so parallel GHA legs never collide in ingest's workflow/run_id/<basename> dedup key.
 # combined: one shared perf dir, so the last run's report.xml covers every model (Jenkins product-test's require_results_file).
@@ -255,15 +255,15 @@ tests: ## Run the suites selected by TEST_TYPE into RESULTS_DIR (JUnit per suite
 	@# matches what CI runs for the "unit" tier via GHA.
 	@# An explicit MODEL_PATH always wins; otherwise tests/model_lists/<tier>.yaml (if present) supplies it, so no caller needs to know or pass model names itself.
 	@# Parsed as a flat YAML list (`- path` under a `models:` key) via grep/sed -- no real YAML parser needed for a format this simple.
-	@# The perf tier is the exception: perf.yaml is nested (daily:/weekly:), so an
+	@# The perf tier is the exception: perf.yaml is nested (nightly:/weekly:), so an
 	@# awk pass tracks the top-level section and emits only PERF_SCHEDULE's models.
 	resolved="$$(scripts/resolve_test_type.sh $(TEST_TYPE))"; \
 	model_path="$(MODEL_PATH)"; \
 	if [ -z "$$model_path" ] && [ -f "tests/model_lists/$${resolved}.yaml" ]; then \
 	  if [ "$$resolved" = perf ]; then \
 	    case "$(PERF_SCHEDULE)" in \
-	      daily|weekly) : ;; \
-	      *) echo "ERROR: PERF_SCHEDULE must be daily or weekly (got '$(PERF_SCHEDULE)')" >&2; exit 1 ;; \
+	      nightly|weekly) : ;; \
+	      *) echo "ERROR: PERF_SCHEDULE must be nightly or weekly (got '$(PERF_SCHEDULE)')" >&2; exit 1 ;; \
 	    esac; \
 	    model_path="$$(awk -v want="$(PERF_SCHEDULE)" ' \
 	      /^[A-Za-z0-9_]+:/ { sect = substr($$1, 1, length($$1) - 1); next } \
