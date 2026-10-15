@@ -107,8 +107,9 @@ on:
         description: >-
           Only used when test_type=perf: which section of
           tests/model_lists/perf.yaml to benchmark. "daily" is the small
-          hand-picked large-model set; "weekly" is the full per-adapter sweep
-          (generated from WEEKLY_PERF_PATHS). Ignored for every other test_type.
+          hand-picked large-model set; "weekly" contains the registry entries
+          marked weekly_perf (exposed through WEEKLY_PERF_PATHS). Ignored for
+          every other test_type.
           Mirrors the Makefile's PERF_SCHEDULE variable.
         required: false
         type: choice

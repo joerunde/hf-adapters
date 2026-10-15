@@ -137,14 +137,6 @@ CAUSAL_LM_MODELS = {
         # Not yet publicly accessible on the HF Hub -- drop this once the model ships.
         "is_gated": True,
     },
-    # hf_granite_vision.py
-    "granite-vision": {
-        "name": "Granite Vision 4.1 4B",
-        "path": "ibm-granite/granite-vision-4.1-4b",
-        "adapter": "hf_granite_vision.py",
-        "size": "4b",
-        "weekly_perf": False,  # Currently False. Model vision is not supported by spyre-perf-suite
-    },
     # hf_smollm3.py
     "smollm3": {
         "name": "SmolLM3 3B",

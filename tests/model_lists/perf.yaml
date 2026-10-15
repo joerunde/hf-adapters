@@ -13,7 +13,6 @@ weekly:
   - EleutherAI/pythia-410m
   - ibm-granite/granite-3.3-2b-instruct
   - ibm-granite/granite-4.0-1b-base
-  - ibm-granite/granite-vision-4.1-4b
   - HuggingFaceTB/SmolLM3-3B-Base
   - LiquidAI/LFM2-350M
   - microsoft/Phi-3.5-mini-instruct

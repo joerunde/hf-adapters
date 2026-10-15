@@ -146,9 +146,9 @@ edge-cases-tests: ## Run edge-case tests (suite key: edge_cases; EDGE_CASE_FILE=
 
 # PERF_SCHEDULE selects which section of tests/model_lists/perf.yaml the `tests`
 # target reads models from when TEST_TYPE=perf: `daily` (the small hand-picked
-# large-model set) or `weekly` (the full per-adapter sweep, generated from
-# WEEKLY_PERF_PATHS). Only consulted for the perf tier -- other tiers' lists are
-# flat (no sections). An explicit MODEL_PATH still overrides it.
+# large-model set) or `weekly` (the registry entries marked `weekly_perf`,
+# exposed through WEEKLY_PERF_PATHS). Only consulted for the perf tier -- other
+# tiers' lists are flat (no sections). An explicit MODEL_PATH still overrides it.
 PERF_SCHEDULE ?= daily
 
 # split: per-model file names, so parallel GHA legs never collide in ingest's workflow/run_id/<basename> dedup key.

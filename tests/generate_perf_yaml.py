@@ -14,10 +14,10 @@
 
 """Regenerate ``tests/model_lists/perf.yaml`` from ``model_registry.py``.
 
-The ``weekly.models`` list is the per-adapter representative causal-LM set
-(``WEEKLY_PERF_PATHS``); it is derived from the registry, so it is generated here
-rather than hand-maintained. The ``daily.models`` list is a hand-picked subset of
-large models and is preserved verbatim from the existing file.
+The ``weekly.models`` list contains the causal-LM registry entries marked
+``weekly_perf`` (exposed through ``WEEKLY_PERF_PATHS``), so it is generated here
+rather than hand-maintained. The ``daily.models`` list is a hand-picked subset
+of large models and is preserved verbatim from the existing file.
 
 Run this whenever the registry changes and ``test_perf_coverage.py`` fails:
 

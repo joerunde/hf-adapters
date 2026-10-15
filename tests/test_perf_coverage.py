@@ -16,10 +16,10 @@
 
 The ``perf`` test tier benchmarks an explicit model list (perf.yaml) rather than
 the full registry. The ``weekly.models`` entry of that list is meant to mirror
-``WEEKLY_PERF_PATHS`` -- the per-adapter representative causal-LM set derived
-from ``model_registry.py``. When a new adapter is added (or a representative
-changes), ``WEEKLY_PERF_PATHS`` shifts but the checked-in perf.yaml does not, so
-this test fails and points at ``tests/generate_perf_yaml.py`` to regenerate it.
+``WEEKLY_PERF_PATHS`` -- the causal-LM registry entries marked ``weekly_perf``.
+When that metadata or a marked model's path changes, ``WEEKLY_PERF_PATHS`` may
+shift while the checked-in perf.yaml does not, so this test fails and points at
+``tests/generate_perf_yaml.py`` to regenerate it.
 
 Like ``test_adapter_coverage.py``, this test only needs ``pytest`` + ``PyYAML``
 and no torch fixtures, so run it with ``pytest --noconftest`` to bypass the
