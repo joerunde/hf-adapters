@@ -137,6 +137,14 @@ CAUSAL_LM_MODELS = {
         # Not yet publicly accessible on the HF Hub -- drop this once the model ships.
         "is_gated": True,
     },
+    # hf_granite_vision.py
+    "granite-vision": {
+        "name": "Granite Vision 4.1 4B",
+        "path": "ibm-granite/granite-vision-4.1-4b",
+        "adapter": "hf_granite_vision.py",
+        "size": "4b",
+        "weekly_perf": False,  # Vision models are unsupported by spyre-perf-suite.
+    },
     # hf_smollm3.py
     "smollm3": {
         "name": "SmolLM3 3B",
@@ -836,7 +844,6 @@ WEEKLY_PERF_PATHS: list[str] = _exclude(
         info["path"]
         for info in CAUSAL_LM_MODELS.values()
         if info.get("weekly_perf", False)
-        and (_include_gated_flag or not info.get("is_gated", False))
     ]
 )
 

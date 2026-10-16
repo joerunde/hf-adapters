@@ -256,7 +256,8 @@ tests: ## Run the suites selected by TEST_TYPE into RESULTS_DIR (JUnit per suite
 	@# An explicit MODEL_PATH always wins; otherwise tests/model_lists/<tier>.yaml (if present) supplies it, so no caller needs to know or pass model names itself.
 	@# Parsed as a flat YAML list (`- path` under a `models:` key) via grep/sed -- no real YAML parser needed for a format this simple.
 	@# The perf tier is the exception: perf.yaml is nested (nightly:/weekly:), so an
-	@# awk pass tracks the top-level section and emits only PERF_SCHEDULE's models.
+	@# awk pass tracks the top-level section and emits only PERF_SCHEDULE's models;
+	@# it relies on the block-list format emitted by tests/generate_perf_yaml.py.
 	resolved="$$(scripts/resolve_test_type.sh $(TEST_TYPE))"; \
 	model_path="$(MODEL_PATH)"; \
 	if [ -z "$$model_path" ] && [ -f "tests/model_lists/$${resolved}.yaml" ]; then \

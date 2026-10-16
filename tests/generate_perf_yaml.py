@@ -52,16 +52,23 @@ def _load_existing(path: Path) -> dict[str, object]:
         return {}
     with open(path) as f:
         data: object = yaml.safe_load(f)
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a YAML mapping")
+    return data
 
 
 def build_perf_config() -> dict[str, dict[str, list[str]]]:
     """Build the perf.yaml document: generated ``weekly``, preserved ``nightly``."""
     existing: dict[str, object] = _load_existing(PERF_YAML_PATH)
-    nightly: object = existing.get("nightly") if isinstance(existing, dict) else None
+    nightly: object = existing.get("nightly")
     nightly_models: list[str] = []
-    if isinstance(nightly, dict) and isinstance(nightly.get("models"), list):
-        nightly_models = [str(m) for m in nightly["models"]]
+    if nightly is not None:
+        if not isinstance(nightly, dict):
+            raise ValueError(f"{PERF_YAML_PATH} nightly must be a mapping")
+        models: object = nightly.get("models")
+        if not isinstance(models, list):
+            raise ValueError(f"{PERF_YAML_PATH} nightly.models must be a list")
+        nightly_models = [str(model) for model in models]
 
     return {
         "nightly": {"models": nightly_models},

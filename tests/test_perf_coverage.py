@@ -30,8 +30,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
+import tests.generate_perf_yaml as perf_generator
 from tests.model_registry import WEEKLY_PERF_PATHS
 
 PERF_YAML_PATH: Path = Path(__file__).resolve().parent / "model_lists" / "perf.yaml"
@@ -61,6 +63,27 @@ def _load_weekly_models() -> list[str]:
         models, list
     ), f"{PERF_YAML_PATH} `weekly.models` is not a list. {REGEN_HINT}"
     return [str(m) for m in models]
+
+
+def test_generator_rejects_non_mapping_yaml(tmp_path: Path) -> None:
+    """An existing perf file with the wrong top-level shape must not be replaced."""
+    path: Path = tmp_path / "perf.yaml"
+    path.write_text("- not-a-mapping\n")
+
+    with pytest.raises(ValueError, match="must contain a YAML mapping"):
+        perf_generator._load_existing(path)
+
+
+def test_generator_rejects_invalid_nightly_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed nightly data must not be silently replaced with an empty list."""
+    path: Path = tmp_path / "perf.yaml"
+    path.write_text("nightly:\n  models: not-a-list\n")
+    monkeypatch.setattr(perf_generator, "PERF_YAML_PATH", path)
+
+    with pytest.raises(ValueError, match=r"nightly\.models must be a list"):
+        perf_generator.build_perf_config()
 
 
 def test_weekly_models_match_weekly_perf_paths() -> None:
