@@ -1506,19 +1506,27 @@ def pad_lm_head(model, *, min_vocab_size: int | None = None):
         return
     w = head.weight
     vocab = w.shape[0]
-    target_vocab = max(vocab, min_vocab_size or vocab)
-    hidden = w.shape[1]
-    dtype_bytes = w.element_size()
-    # Max residual sticks whose per-core span fits the EAR limit.
-    max_residual = _EAR_LIMIT_BYTES // (hidden * BLOCK_SIZE * dtype_bytes)
-    sticks = (target_vocab + BLOCK_SIZE - 1) // BLOCK_SIZE
-    while _largest_prime_factor(sticks) > max_residual:
-        sticks += 1
-    padded = sticks * BLOCK_SIZE
+    padded = padded_vocab_size(
+        max(vocab, min_vocab_size or vocab), w.shape[1], w.element_size()
+    )
     if padded != vocab:
         head.weight = nn.Parameter(
             F.pad(w, (0, 0, 0, padded - vocab)), requires_grad=False
         )
+
+
+def padded_vocab_size(vocab: int, hidden: int, dtype_bytes: int) -> int:
+    """Smallest stick-aligned output width >= ``vocab`` that fits the EAR limit.
+
+    The padding rule of :func:`pad_lm_head`, for any ``[vocab, hidden]``
+    output-projection weight that is not the model's ``lm_head``.
+    """
+    # Max residual sticks whose per-core span fits the EAR limit.
+    max_residual = _EAR_LIMIT_BYTES // (hidden * BLOCK_SIZE * dtype_bytes)
+    sticks = (vocab + BLOCK_SIZE - 1) // BLOCK_SIZE
+    while _largest_prime_factor(sticks) > max_residual:
+        sticks += 1
+    return sticks * BLOCK_SIZE
 
 
 def prepare_lm_head_for_spyre(
@@ -2993,6 +3001,7 @@ def generate(
     prefill_fn: Optional[Callable] = None,
     decode_fn: Optional[Callable] = None,
     token_aligned_inputs: Optional[dict[str, tuple[torch.Tensor, Any]]] = None,
+    streamer=None,
     **kwargs,
 ):
     """Model-agnostic generation: optional chunked prefill, then token decode.
@@ -3045,6 +3054,8 @@ def generate(
             generation config; pass ``None`` to disable EOS stopping (matches
             stock ``generate()``).
         timing: Print per-token latency.
+        streamer: Optional HF ``BaseStreamer`` (e.g. ``TextIteratorStreamer``);
+            receives the prompt, then each selected token. Batch size 1 only.
         prefill_backbone_fn: Optional adapter backbone with the same arguments
             as ``run_forward_fn``, returning hidden states. Text prefill runs
             this for every chunk, then applies the prepared LM head only to
@@ -3198,6 +3209,11 @@ def generate(
     # ``current_cache_len``, so generated tokens are contiguous from ``padded_len``.
     previous_tokens = None
     current_cache_len = padded_len
+
+    if streamer is not None:
+        if batch_size > 1:
+            raise ValueError("`streamer` supports batch size 1 only")
+        streamer.put(orig_input_ids.cpu())
 
     times_list = []
     finished = torch.zeros(batch_size, dtype=torch.bool)
@@ -3371,12 +3387,17 @@ def generate(
             next_tokens = next_tokens.masked_fill(finished, pad_token_id)
         generated_columns.append(next_tokens.clone())
         previous_tokens = next_tokens
+        if streamer is not None:
+            streamer.put(next_tokens.cpu())
 
         if eos_ids is not None:
             finished |= torch.isin(next_tokens, eos_ids)
 
         if finished.all():
             break
+
+    if streamer is not None:
+        streamer.end()
 
     if timing and times_list:
         print(f"\nFirst-token latency: {times_list[0] * 1000:.3f} ms")
