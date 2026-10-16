@@ -1898,7 +1898,7 @@ class TorchOpCollector:
                 "dtypes": [
                     {"name": "bfloat16", "precision": {"atol": 0.008, "rtol": 0.008}}
                 ],
-                "cases":_filter_cases(self.test_cases_yaml),
+                "cases": _filter_cases(self.test_cases_yaml),
             }
             print(f"Total no. of test cases: {len(config['cases'])}")
 
