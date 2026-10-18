@@ -37,6 +37,8 @@ from transformers.integrations.tensor_parallel import (
     replace_layer_number_by_wildcard,
 )
 
+from hf_adapters.hf_common import spyre_compiled_all_reduce
+
 SPYRE_COLWISE = "spyre_colwise"
 SPYRE_COLWISE_GATHER_OUTPUT = "spyre_colwise_gather_output"
 SPYRE_ROWWISE = "spyre_rowwise"
@@ -478,23 +480,6 @@ def prepare_spyre_tp_plan(
         if name in rewritten
     }
     return {**exact_overrides, **rewritten}
-
-
-def spyre_compiled_all_reduce(tensor, group_name):
-    """All-reduce *tensor* through Spyre's graph-lowered collective path.
-
-    Unlike Transformers' ``all_reduce_forward`` autograd wrapper, the
-    functional collective is visible to Dynamo/Inductor.  Torch-Spyre lowers
-    it to a cached ``allreduce_plan`` and an in-graph ``allreduce_run``.  The
-    lowering plans against the realized device allocation, so a separate
-    PyTorch flatten/copy is neither necessary nor desirable here.
-
-    This helper is intended to be called from inside a ``torch.compile``
-    region.  Eager module hooks should continue using the layout-aware helpers
-    above and below.
-    """
-    reduced = torch.ops._c10d_functional.all_reduce(tensor, "sum", group_name)
-    return torch.ops._c10d_functional.wait_tensor(reduced)
 
 
 def _reassemble_all_gather_last_dim(
