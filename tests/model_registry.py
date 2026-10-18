@@ -450,7 +450,7 @@ EMBEDDING_MODELS = {
         "name": "EmbeddingGemma 2",
         "path": "google/embeddinggemma-2",
         "adapter": "hf_embeddinggemma2.py",
-        "is_gated": True,
+        "is_gated": False,
         "size": "0.7b",
     },
     # hf_gemma3.py
