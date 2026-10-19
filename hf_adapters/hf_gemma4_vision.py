@@ -503,7 +503,7 @@ def prepare_for_spyre(model: Any) -> None:
         )
     if config.rope_parameters.get("rope_type", "default") not in ("default", "axial"):
         raise SpyreUnsupportedFeatureError(
-            "Gemma 4 vision supports only default, unscaled RoPE on Spyre."
+            "Gemma 4 vision supports only default or axial, unscaled RoPE on Spyre."
         )
     orig_head_dim = config.head_dim
     padded_head_dim = math.ceil(orig_head_dim / (2 * BLOCK_SIZE)) * (2 * BLOCK_SIZE)
