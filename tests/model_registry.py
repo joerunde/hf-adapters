@@ -452,6 +452,9 @@ EMBEDDING_MODELS = {
         "adapter": "hf_embeddinggemma2.py",
         "is_gated": False,
         "size": "0.7b",
+        "modalities": ("text", "image"),
+        "supports_interleaved_media": True,
+        "interleaved_media_placeholder": "<|image|>",
     },
     # hf_gemma3.py
     "embeddinggemma": {
@@ -895,6 +898,13 @@ XPRESS_PATHS: list[str] = _exclude(
 )
 EMBED_PATHS: list[str] = _exclude(
     _select_representative_paths(EMBEDDING_MODELS, include_gated=_include_gated_flag)
+)
+MULTIMODAL_EMBED_PATHS: list[str] = _exclude(
+    _select_representative_paths(
+        EMBEDDING_MODELS,
+        include_gated=_include_gated_flag,
+        predicate=lambda info: "image" in info.get("modalities", ()),
+    )
 )
 MASKED_LM_PATHS: list[str] = _exclude(
     _select_representative_paths(MASKED_LM_MODELS, include_gated=_include_gated_flag)
