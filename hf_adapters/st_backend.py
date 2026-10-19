@@ -107,47 +107,54 @@ def _spyre_load_model(
     # Route to the right prefill driver. Encoder-only adapters set
     # _is_encoder_only = True; decoder adapters leave it absent.
     is_encoder_only = getattr(adapter_module, "_is_encoder_only", False)
+    preserve_native_forward: bool = getattr(
+        adapter_module, "_preserve_native_forward", False
+    )
 
-    if getattr(adapter_module, "_preserve_native_forward", False):
-        # Multimodal embedders retain their HF media merging and prepared forward.
-        pass
-    elif is_encoder_only:
+    # The generic ST integration replaces the model's top-level forward with a
+    # text-only prefill wrapper. Multimodal adapters keep their native top-level
+    # forward so it can merge media features, while their prepared inner
+    # backbones still run on Spyre.
+    if not preserve_native_forward:
+        if is_encoder_only:
 
-        def _spyre_forward(
-            self: Any,
-            input_ids: torch.Tensor | None = None,
-            attention_mask: torch.Tensor | None = None,
-            **kwargs: Any,
-        ) -> BaseModelOutput:
-            token_type_ids = kwargs.get("token_type_ids", None)
-            # ST places features on ``model.device`` (Spyre); the prefill drivers
-            # build their CPU-side auxiliary tensors from these inputs (e.g.
-            # ``attention_mask.sum`` for lengths) before moving to device, so the
-            # inputs must be on CPU.
-            h = prefill_encoder(
-                run_backbone_forward,
-                self,
-                _to_cpu(input_ids),
-                _to_cpu(attention_mask),
-                token_type_ids=_to_cpu(token_type_ids),
-            )
-            return BaseModelOutput(last_hidden_state=h)
+            def _spyre_forward(
+                self: Any,
+                input_ids: torch.Tensor | None = None,
+                attention_mask: torch.Tensor | None = None,
+                **kwargs: Any,
+            ) -> BaseModelOutput:
+                token_type_ids = kwargs.get("token_type_ids", None)
+                # ST places features on ``model.device`` (Spyre); the prefill drivers
+                # build their CPU-side auxiliary tensors from these inputs (e.g.
+                # ``attention_mask.sum`` for lengths) before moving to device, so the
+                # inputs must be on CPU.
+                h = prefill_encoder(
+                    run_backbone_forward,
+                    self,
+                    _to_cpu(input_ids),
+                    _to_cpu(attention_mask),
+                    token_type_ids=_to_cpu(token_type_ids),
+                )
+                return BaseModelOutput(last_hidden_state=h)
 
-    else:
+        else:
 
-        def _spyre_forward(
-            self: Any,
-            input_ids: torch.Tensor | None = None,
-            attention_mask: torch.Tensor | None = None,
-            **kwargs: Any,
-        ) -> BaseModelOutput:
-            # See the encoder branch: prefill drivers require CPU inputs.
-            h = prefill_embed(
-                run_backbone_forward, self, _to_cpu(input_ids), _to_cpu(attention_mask)
-            )
-            return BaseModelOutput(last_hidden_state=h)
+            def _spyre_forward(
+                self: Any,
+                input_ids: torch.Tensor | None = None,
+                attention_mask: torch.Tensor | None = None,
+                **kwargs: Any,
+            ) -> BaseModelOutput:
+                # See the encoder branch: prefill drivers require CPU inputs.
+                h = prefill_embed(
+                    run_backbone_forward,
+                    self,
+                    _to_cpu(input_ids),
+                    _to_cpu(attention_mask),
+                )
+                return BaseModelOutput(last_hidden_state=h)
 
-    if not getattr(adapter_module, "_preserve_native_forward", False):
         model.forward = types.MethodType(_spyre_forward, model)
 
     # Run ST's Pooling and Normalize (both dynamic-shaped pointwise ops that do
@@ -160,7 +167,7 @@ def _spyre_load_model(
     _original_transformer_forward = self.forward
 
     def _cpu_pooling_forward(features: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        if getattr(adapter_module, "_preserve_native_forward", False):
+        if preserve_native_forward:
             features = {key: _to_cpu(value) for key, value in features.items()}
         features = _original_transformer_forward(features, **kwargs)
         for key, value in features.items():
