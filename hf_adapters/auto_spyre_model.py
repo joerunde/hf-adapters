@@ -42,7 +42,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import partial
-from importlib import import_module
 from types import MethodType, ModuleType
 from typing import Any, Optional, Union, cast
 
@@ -102,6 +101,10 @@ from transformers.modeling_outputs import (
 )
 from transformers.models.diffusion_gemma.configuration_diffusion_gemma import (
     DiffusionGemmaConfig,
+)
+from transformers.models.embedding_gemma2.configuration_embedding_gemma2 import (
+    EmbeddingGemma2Config,
+    EmbeddingGemma2TextConfig,
 )
 from transformers.models.granite_swa.configuration_granite_swa import GraniteSWAConfig
 from transformers.models.ministral.configuration_ministral import MinistralConfig
@@ -166,6 +169,8 @@ CONFIG_TO_ADAPTER_MODULE_MAPPING: dict[type[PretrainedConfig], ModuleType] = {
     CLIPConfig: hf_clip,
     DiffusionGemmaConfig: hf_diffusion_gemma,
     DistilBertConfig: hf_distilbert,
+    EmbeddingGemma2Config: hf_embeddinggemma2,
+    EmbeddingGemma2TextConfig: hf_embeddinggemma2,
     Gemma2Config: hf_gemma2,
     Gemma3Config: hf_gemma3,
     Gemma3TextConfig: hf_gemma3,
@@ -202,22 +207,6 @@ CONFIG_TO_ADAPTER_MODULE_MAPPING: dict[type[PretrainedConfig], ModuleType] = {
     SmolLM3Config: hf_smollm3,
     XLMRobertaConfig: hf_xlm_roberta,
 }
-
-# Keep the default 5.15 environment usable; EmbeddingGemma 2 needs a newer
-# Transformers model and processor in an isolated environment.
-try:
-    _embeddinggemma2_config_module: ModuleType = import_module(
-        "transformers.models.embedding_gemma2.configuration_embedding_gemma2"
-    )
-except ImportError:
-    pass
-else:
-    CONFIG_TO_ADAPTER_MODULE_MAPPING.update(
-        {
-            _embeddinggemma2_config_module.EmbeddingGemma2Config: hf_embeddinggemma2,
-            _embeddinggemma2_config_module.EmbeddingGemma2TextConfig: hf_embeddinggemma2,
-        }
-    )
 
 # Architecture-name mapping — consulted BEFORE the config-class map. DSpark
 # speculative-decoding *drafters* reuse their base model's config class

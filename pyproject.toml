@@ -88,6 +88,12 @@ follow_imports = "skip"
 module = "transformers.models.granite_swa.*"
 ignore_missing_imports = true
 
+# transformers.models.embedding_gemma2 is new in transformers 5.19; its config
+# submodule is not covered by the shipped type stubs, so mypy cannot resolve it.
+[[tool.mypy.overrides]]
+module = "transformers.models.embedding_gemma2.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
