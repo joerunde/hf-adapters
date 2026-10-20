@@ -1,10 +1,13 @@
-"""Experimental lm-eval-harness backend and a tiny MMLU smoke run.
+"""Spyre lm-eval-harness backend and an ad-hoc task runner.
+
+For repeatable suites, native GPU references, and comparisons, use
+``python -m evals.lm_eval.run_benchmarks``; see this directory's README.
 
 On a Spyre pod, activate the runtime environment and install ``lm_eval`` first.
 Run from the project root so hf_adapters is on PYTHONPATH::
 
-    python -m evals.lm_eval.spyre_lm_eval_backend
-    python -m evals.lm_eval.spyre_lm_eval_backend --model Qwen/Qwen3-0.6B \
+    python -m evals.lm_eval.run_spyre_lm_eval
+    python -m evals.lm_eval.run_spyre_lm_eval --model Qwen/Qwen3-0.6B \
         --tasks mmlu --limit 1
 
 ``--limit`` applies per task (so ``mmlu`` runs all subjects). This is a wiring
