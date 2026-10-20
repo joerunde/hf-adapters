@@ -11,7 +11,7 @@ dependencies = [
     "mistral-common==1.11.7",
     "sentencepiece",
     "accelerate",
-    "sentence_transformers",
+    "sentence_transformers==6.1.0",
 ]
 
 [build-system]
