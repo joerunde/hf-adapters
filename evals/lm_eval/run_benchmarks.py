@@ -7,6 +7,7 @@ fresh process.
 from __future__ import annotations
 
 import argparse
+import codecs
 import copy
 import hashlib
 import importlib.metadata
@@ -393,6 +394,40 @@ def stop_worker(process):
     process.wait()
 
 
+def wait_with_output(process, log_path, timeout):
+    """Tail the worker's log without blocking timeout checks on silent output.
+
+    Keep the worker writing straight to disk: a pipe or readline() can block on
+    silent compilation, partial lines, or carriage-return-only progress bars.
+    """
+    deadline = time.monotonic() + timeout
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    with log_path.open("rb") as stream:
+        try:
+            while True:
+                chunk = stream.read(65536)
+                if chunk:
+                    sys.stdout.write(decoder.decode(chunk))
+                    sys.stdout.flush()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, timeout)
+                try:
+                    return process.wait(timeout=min(0.1, remaining))
+                except subprocess.TimeoutExpired:
+                    pass
+        except BaseException:
+            stop_worker(process)
+            raise
+        finally:
+            # The process has exited or been killed. Include the final output,
+            # including partial lines and any pending multibyte character.
+            while chunk := stream.read(65536):
+                sys.stdout.write(decoder.decode(chunk))
+            sys.stdout.write(decoder.decode(b"", final=True))
+            sys.stdout.flush()
+
+
 def run_benchmark(args, model, spec, output):
     output.mkdir()
     command = [
@@ -413,7 +448,8 @@ def run_benchmark(args, model, spec, output):
         "--worker",
         spec["id"],
     ]
-    with (output / "run.log").open("w") as log:
+    log_path = output / "run.log"
+    with log_path.open("wb") as log:
         process = subprocess.Popen(
             command,
             cwd=ROOT,
@@ -422,16 +458,12 @@ def run_benchmark(args, model, spec, output):
             start_new_session=True,
         )
         try:
-            code = process.wait(timeout=spec["timeout_seconds"])
+            code = wait_with_output(process, log_path, spec["timeout_seconds"])
         except subprocess.TimeoutExpired:
-            stop_worker(process)
             return {
                 "status": "failed",
                 "error": f"Timed out after {spec['timeout_seconds']} seconds",
             }
-        except BaseException:
-            stop_worker(process)
-            raise
     path = output / ".worker-result.json"
     result = (
         json.loads(path.read_text())
@@ -444,6 +476,29 @@ def run_benchmark(args, model, spec, output):
         result["status"] = "failed"
         result.setdefault("error", f"Worker exited with code {code}; see run.log")
     return result
+
+
+def print_benchmark_result(result):
+    """Print scores immediately, including available reference comparisons."""
+    elapsed = result.get("elapsed_seconds")
+    duration = f" in {elapsed:.1f}s" if elapsed is not None else ""
+    detail = result.get("error", result.get("comparison", ""))
+    if result.get("differences"):
+        detail += ": " + ", ".join(result["differences"])
+    # Progress bars and compiler messages need not end with a newline.
+    print(
+        f"\n  {result['status']}{duration}" + (f": {detail}" if detail else ""),
+        flush=True,
+    )
+    for row in result.get("metrics", []):
+        line = f"    {row['task']} | {row['metric']}: {row['value']:.6g}"
+        if "reference" in row:
+            change = row.get("percent_change")
+            change = f"{change:+.2f}%" if change is not None else "N/A (zero reference)"
+            line += f" (reference: {row['reference']:.6g}; change: {change})"
+        elif row.get("comparison"):
+            line += f" ({row['comparison']})"
+        print(line, flush=True)
 
 
 def markdown_report(report):
@@ -536,10 +591,7 @@ def run_suite(args, suite, models):
             benchmarks[spec["id"]] = result
             write_json(output / "report.json", report)
             (output / "summary.md").write_text(markdown_report(report))
-            print(
-                f"  {result['status']}: {result.get('error', result.get('comparison', ''))}",
-                flush=True,
-            )
+            print_benchmark_result(result)
         successful = {
             name: r for name, r in benchmarks.items() if r["status"] == "completed"
         }
