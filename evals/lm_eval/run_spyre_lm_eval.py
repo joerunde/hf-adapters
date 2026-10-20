@@ -103,10 +103,11 @@ class SpyreHFLM(HFLM):
         if self.backend != "causal":
             raise ValueError("spyre_hf only supports causal language models")
 
-        # HFLM may discover quantization in the checkpoint config after init
-        # validation, so retain this check at the model-loading boundary.
-        if quantization_config is not None:
-            raise ValueError("spyre_hf does not support quantized checkpoints")
+        # HFLM discovers quantization metadata in the checkpoint config. Leave
+        # its interpretation to the normal adapter loader: e.g. Ministral 3's
+        # FP8 checkpoint is dequantized on CPU before moving to Spyre. Do not
+        # forward HFLM's quantization_config or erase the checkpoint metadata.
+        # Explicit user quantization overrides are rejected by __init__.
 
         spyre_dtype = (
             dtype_for_model_path(
