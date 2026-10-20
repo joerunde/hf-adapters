@@ -1,6 +1,11 @@
 name: LM evaluation
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/lm-eval.yaml"
+      - "evals/lm_eval/**"
+      - "tests/model_lists/perf.yaml"
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
