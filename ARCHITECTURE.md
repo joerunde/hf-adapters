@@ -143,16 +143,25 @@ Use `st_backend` for the sentence-transformers API, or call `prefill_embed` / `p
 
 **CPU Accurate** = adapter hidden-states have cosine similarity ≥ 0.999 vs stock HF on CPU (the bound accommodates the bf16-native EmbeddingGemma; fp16 models clear it with wide margin).
 
-EmbeddingGemma 2 currently requires an isolated environment with Transformers
-5.19.0 and SentenceTransformers 6.1+, then `pip install --no-deps -e .`.
-The default dependency pin stays at 5.15.0 because the newer release changes
-the tensor-parallel API. Its text and Gemma 4 vision transformer
+The project pins Transformers 5.19.0. EmbeddingGemma 2 additionally requires
+SentenceTransformers 6.1+. Its text and Gemma 4 vision transformer
 bodies use compiled Spyre blocks; patch embedding, media merging, audio, PLE
 projection, output projection and pooling run on CPU. Use bf16. Text, image and
 interleaved text/image embeddings match the bf16 CPU reference with cosine
 ≥ 0.999954. Hardware verification is pending: the development pod's device was
-occupied by a separate performance run. The newer Transformers version
-uses a different tensor-parallel API; this adapter currently targets one device.
+occupied by a separate performance run. This adapter currently targets one device.
+
+The shared TP loader uses Transformers 5.19's DTensor shard-on-read machinery
+on CPU, then exposes ordinary rank-local parameters before adapter preparation
+and layout-aware Spyre transfer. Explicit plans replace the default plan;
+exact layer rules take precedence over wildcard rules. HF default rules for
+absent optional modules are allowed; unknown unmatched rules are rejected.
+Hidden-dimension embedding sharding (`embedding_colwise`) is unsupported and
+rejected before loading; use replicated or vocabulary-sharded embeddings instead.
+Prepared TP models cannot be saved with `save_pretrained`: local shards and adapter-specific padding
+must not be mistaken for a complete checkpoint. Two-/four-rank CPU tests cover
+the loading path; multi-card Spyre validation requires a pod allocated multiple
+cards.
 **Spyre Compiles / Spyre Runs** = via `test_e2e_embed_compare_spyre.py`. GTE-Qwen2 compiles and executes end-to-end on Spyre but its pooled embeddings drift from the CPU reference; the Qwen3/Mistral/BERT/XLM-RoBERTa/MPNet/ModernBERT encoder paths match within fp16 noise. EmbeddingGemma runs in **bf16** (fp16 overflows its residual stream) and matches the bf16 CPU reference within bf16 noise (per-token cosine ≥ 0.999; pooled ≥ 0.99).
 
 ### Sequence Classification
