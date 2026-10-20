@@ -12,13 +12,13 @@ from sentence_transformers import SentenceTransformer
 
 import hf_adapters.st_backend  # noqa: F401
 from hf_adapters.auto_spyre_model import dtype_for_model_path
-from tests.model_registry import EMBEDDING_MODELS, MULTIMODAL_EMBED_PATHS
+from tests.model_registry import MULTIMODAL_EMBED_PATHS, MULTIMODAL_EMBEDDING_MODELS
 
 pytestmark = pytest.mark.model_harness("embedding")
 
 COSINE_THRESHOLD = 0.99
 _MODEL_INFO_BY_PATH: dict[str, dict[str, Any]] = {
-    info["path"]: info for info in EMBEDDING_MODELS.values()
+    info["path"]: info for info in MULTIMODAL_EMBEDDING_MODELS.values()
 }
 
 
@@ -47,7 +47,7 @@ def _build_inputs(model_path: str) -> list[Any]:
 )
 def test_multimodal_embedding_compare_spyre(model_path: str) -> None:
     """Compare registered multimodal inputs and retrieval results with CPU."""
-    if model_path not in MULTIMODAL_EMBED_PATHS:
+    if model_path not in _MODEL_INFO_BY_PATH:
         pytest.skip(f"{model_path} does not declare image embedding support")
 
     inputs: list[Any] = _build_inputs(model_path)
