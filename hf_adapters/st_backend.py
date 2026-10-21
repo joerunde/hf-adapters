@@ -15,10 +15,9 @@
 """sentence-transformers ``backend="spyre"`` support.
 
 Importing this module registers a ``"spyre"`` backend with
-``sentence_transformers`` by monkey-patching two methods:
-``sentence_transformers.base.modules.transformer.Transformer._load_model`` and
-``sentence_transformers.SentenceTransformer.__init__``. After import, the
-standard ST API works unchanged::
+``sentence_transformers`` by patching the Transformer model loader and
+SentenceTransformer initialization, forward, and device lookup. After import,
+the standard ST API works unchanged::
 
     import hf_adapters.st_backend
     from sentence_transformers import SentenceTransformer
@@ -33,12 +32,15 @@ the backbone via ``AutoSpyreModel.from_pretrained``, then overrides
 ``Transformer.forward`` expects.
 
 The backbone runs on Spyre; ST's Pooling and Normalize run on the host (they are
-dynamic-shaped pointwise ops that do not compile on Spyre). Two pieces arrange
+dynamic-shaped pointwise ops that do not compile on Spyre). These patches arrange
 that with an honest ``model.device`` (Spyre):
 
 - The ``__init__`` patch defaults the device to ``"spyre"`` for
   ``backend="spyre"`` (unless the caller passed one), so ST's ``self.to(device)``
   keeps the prepared backbone on Spyre instead of moving it to CPU.
+- The ``device`` patch finds the actual Spyre-resident parameters even when the
+  first parameter belongs to a CPU-pinned embedding module. This keeps subsequent
+  ``encode()`` calls from inferring CPU and moving the entire backbone there.
 - ``_load_model`` wraps the ``Transformer`` module's ``forward`` to move the
   output ``features`` dict back to CPU before the downstream pooling modules read
   it, and moves the (Spyre-placed) inputs to CPU for the prefill drivers.
@@ -195,6 +197,24 @@ def _spyre_init(self: Any, *args: Any, **kwargs: Any) -> None:
     _original_init(self, *args, **kwargs)
 
 
+def _spyre_device(self: Any) -> torch.device:
+    """Report the accelerator, not a CPU-pinned embedding's device.
+
+    ST's default getter assumes a single-device model. Our hybrid models can
+    have their first parameter on CPU after forward, so that getter would make
+    the next encode() call move all the compiled blocks to CPU. Derive the
+    device from live parameters instead of caching it, preserving device indices
+    and stock behavior when the caller explicitly moves the whole model to CPU.
+    """
+    if getattr(self, "_spyre_backend", False):
+        for parameter in self.parameters():
+            device: torch.device = parameter.device
+            if device.type == "spyre":
+                return device
+    assert _original_device is not None
+    return _original_device(self)
+
+
 def _restore_cpu_submodule(submod):
     """Move a sub-module back to CPU and restore any integer buffers corrupted by Spyre.
 
@@ -257,17 +277,19 @@ def _spyre_forward(self: Any, input: Any, **kwargs: Any) -> Any:
     return _original_forward(self, input, **kwargs)
 
 
-def register():
+def register() -> None:
     """Monkey-patch ST to add ``backend="spyre"`` support.
 
     Patches ``Transformer._load_model`` (to load/prepare the Spyre backbone) and
     ``SentenceTransformer.__init__`` (to default the device to Spyre for
-    ``backend="spyre"``). Idempotent: calling ``register()`` more than once is safe.
+    ``backend="spyre"``), ``forward`` (to keep host-only modules on CPU), and
+    ``device`` (to recognize the hybrid model's Spyre parameters). Idempotent:
+    calling ``register()`` more than once is safe.
     """
     from sentence_transformers import SentenceTransformer
     from sentence_transformers.base.modules.transformer import Transformer
 
-    global _original_load_model, _original_init, _original_forward
+    global _original_load_model, _original_init, _original_forward, _original_device
 
     if getattr(Transformer, "_spyre_patched", False):
         return
@@ -281,6 +303,9 @@ def register():
     _original_forward = SentenceTransformer.forward
     SentenceTransformer.forward = _spyre_forward
 
+    _original_device = SentenceTransformer.device.fget
+    SentenceTransformer.device = SentenceTransformer.device.getter(_spyre_device)
+
     Transformer._spyre_patched = True
 
 
@@ -288,4 +313,5 @@ def register():
 _original_load_model: Callable[..., Any] | None = None
 _original_init: Callable[..., None] | None = None
 _original_forward: Callable[..., Any] | None = None
+_original_device: Callable[[Any], torch.device] | None = None
 register()

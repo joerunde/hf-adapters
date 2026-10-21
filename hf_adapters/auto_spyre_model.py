@@ -269,6 +269,11 @@ class ModelDTypePolicy:
 MODEL_DTYPE_POLICIES: dict[str, ModelDTypePolicy] = {
     "google/embeddinggemma-300m": ModelDTypePolicy(dtype=torch.bfloat16),
     "google/embeddinggemma-2": ModelDTypePolicy(dtype=torch.bfloat16),
+    # CLIP's config omits dtype; preserve its FP32 stock CPU reference while
+    # keeping the Spyre execution in FP16 when using the shared harness.
+    "sentence-transformers/clip-ViT-B-32": ModelDTypePolicy(
+        dtype=torch.float16, cpu_dtype=torch.float32
+    ),
     "ibm-granite/granite-4.0-1b-base": ModelDTypePolicy(cpu_dtype=torch.float32),
     "ibm-granite/granite-4.0-1b": ModelDTypePolicy(cpu_dtype=torch.float32),
 }

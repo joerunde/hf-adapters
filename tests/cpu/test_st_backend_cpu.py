@@ -31,9 +31,15 @@ sentence-transformers) so module collection succeeds on hosts that lack
 """
 
 import gc
+from collections.abc import Iterator
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
+import torch
+from transformers import PretrainedConfig
 
+from hf_adapters import auto_spyre_model
 from tests.cpu.conftest import _unwrap_compiled_blocks, cosine_per_row
 from tests.model_registry import EMBED_PATHS
 
@@ -52,6 +58,106 @@ TEST_SENTENCES: list[str] = [
     "Embeddings are dense vector representations of text.",
     "Paris is the capital of France.",
 ]
+
+
+@pytest.mark.parametrize(
+    "target_device", ["cpu", torch.device("cpu"), "spyre", "spyre:1"]
+)
+@pytest.mark.parametrize("checkpoint", list(auto_spyre_model.MODEL_DTYPE_POLICIES))
+def test_model_dtype_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoint: str,
+    target_device: str | torch.device,
+) -> None:
+    """Honor every declared policy, consulting config only for unspecified dtypes."""
+    policy: auto_spyre_model.ModelDTypePolicy = auto_spyre_model.MODEL_DTYPE_POLICIES[
+        checkpoint
+    ]
+    device_type: str = (
+        target_device.type
+        if isinstance(target_device, torch.device)
+        else target_device.split(":", 1)[0]
+    )
+    declared_dtype: torch.dtype | None = (
+        policy.cpu_dtype or policy.dtype if device_type == "cpu" else policy.dtype
+    )
+    config_lookups: list[str] = []
+
+    def config_lookup(
+        model_name_or_path: str, trust_remote_code: bool | None = None
+    ) -> PretrainedConfig:
+        assert declared_dtype is None, "An explicit policy must not need config lookup"
+        config_lookups.append(model_name_or_path)
+        return PretrainedConfig(dtype=torch.bfloat16)
+
+    monkeypatch.setattr(
+        auto_spyre_model,
+        "_autoconfig_with_subfolder_fallback",
+        config_lookup,
+    )
+    expected_dtype: torch.dtype = declared_dtype or torch.bfloat16
+    if device_type == "spyre" and expected_dtype == torch.float32:
+        expected_dtype = torch.float16
+    assert (
+        auto_spyre_model.dtype_for_model_path(checkpoint, target_device=target_device)
+        == expected_dtype
+    )
+    assert config_lookups == ([checkpoint] if declared_dtype is None else [])
+
+
+@pytest.mark.parametrize("device_index", [0, 1])
+@pytest.mark.parametrize("backend", ["spyre", "torch"])
+def test_st_device_with_cpu_first_parameter(
+    monkeypatch: pytest.MonkeyPatch, device_index: int, backend: str
+) -> None:
+    """CPU-pinned embeddings must not hide the Spyre transformer blocks."""
+    from sentence_transformers import SentenceTransformer
+
+    import hf_adapters.st_backend  # noqa: F401
+
+    model: SentenceTransformer = SentenceTransformer(
+        modules=[torch.nn.Linear(2, 2)], backend=backend, device="cpu"
+    )
+    # Only simulate device metadata: no Spyre tensors or global backend rename
+    # are needed to exercise the real SentenceTransformer.device property.
+    spyre_device = cast(torch.device, SimpleNamespace(type="spyre", index=device_index))
+    cpu_parameter = torch.nn.Parameter(torch.ones(1))
+    reported_parameters: list[torch.nn.Parameter] = [
+        cpu_parameter,
+        cast(torch.nn.Parameter, SimpleNamespace(device=spyre_device)),
+    ]
+
+    def parameters(recurse: bool = True) -> Iterator[torch.nn.Parameter]:
+        return iter(reported_parameters)
+
+    monkeypatch.setattr(model, "parameters", parameters)
+    if backend == "spyre":
+        assert model.device is spyre_device
+        assert model.device is spyre_device  # repeated encode() device lookup
+    else:
+        assert model.device == torch.device("cpu")
+
+    # Explicitly moving all parameters to CPU must remain observable: do not
+    # hard-code/cache the construction-time Spyre device in the getter.
+    reported_parameters[:] = [cpu_parameter]
+    assert model.device == torch.device("cpu")
+
+
+@pytest.mark.parametrize("backend", ["spyre", "torch"])
+@pytest.mark.parametrize("with_parameters", [False, True])
+def test_st_device_cpu_fallback(backend: str, with_parameters: bool) -> None:
+    """Keep stock behavior for CPU tests and parameterless modules."""
+    from sentence_transformers import SentenceTransformer
+
+    import hf_adapters.st_backend  # noqa: F401
+
+    module: torch.nn.Module = (
+        torch.nn.Linear(2, 2) if with_parameters else torch.nn.Identity()
+    )
+    model: SentenceTransformer = SentenceTransformer(
+        modules=[module], backend=backend, device="cpu"
+    )
+    assert model.device == torch.device("cpu")
 
 
 @pytest.mark.parametrize("model_path", EMBED_PATHS, ids=EMBED_PATHS)
