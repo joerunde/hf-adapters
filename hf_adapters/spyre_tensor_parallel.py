@@ -277,7 +277,7 @@ class SpyreEmbeddingRowwiseParallel(_SpyreParallel):
     def install_forward(self, module: nn.Module, mesh: DeviceMesh) -> nn.Module:
         super().install_forward(module, mesh)
         group_name = mesh.get_group().group_name
-        weight = cast(torch.Tensor, module.weight)
+        weight = module.get_parameter("weight")
         local_size, vocab_start = Shard.local_shard_size_and_offset(
             weight.shape[0], mesh.size(), mesh.get_local_rank()
         )
