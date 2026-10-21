@@ -2565,7 +2565,7 @@ def _prefer_exact_tp_plan_entries() -> Iterator[None]:
     from transformers import modeling_utils
     from transformers.distributed import tensor_parallel
 
-    original = tensor_parallel._get_parameter_plan
+    original: Callable[..., str | None] = tensor_parallel._get_parameter_plan
 
     def exact_first(
         parameter_name: str, plan: dict[str, str], is_weight: bool = True
@@ -2578,14 +2578,17 @@ def _prefer_exact_tp_plan_entries() -> Iterator[None]:
                 return plan[module_name]
         return original(parameter_name, plan, is_weight=is_weight)
 
-    original_modeling_lookup = modeling_utils._get_parameter_plan
+    # This private re-export exists at runtime but is absent from the HF stubs.
+    original_modeling_lookup: Callable[..., str | None] = getattr(
+        modeling_utils, "_get_parameter_plan"
+    )
     tensor_parallel._get_parameter_plan = exact_first
-    modeling_utils._get_parameter_plan = exact_first
+    setattr(modeling_utils, "_get_parameter_plan", exact_first)
     try:
         yield
     finally:
         tensor_parallel._get_parameter_plan = original
-        modeling_utils._get_parameter_plan = original_modeling_lookup
+        setattr(modeling_utils, "_get_parameter_plan", original_modeling_lookup)
 
 
 def load_model_common(
@@ -2621,6 +2624,7 @@ def load_model_common(
     if isinstance(tp_plan, str) and tp_plan != "auto":
         raise ValueError("tp_plan must be 'auto' or an explicit dictionary")
 
+    model: PreTrainedModel
     if hasattr(module, "load_hf_model"):
         # _sig was already inspected above (for the tp_plan support check).
         # Re-inspect here to determine which optional kwargs this loader accepts.
@@ -2675,7 +2679,7 @@ def load_model_common(
 
     model.eval()
     model.requires_grad_(False)
-    return cast(PreTrainedModel, model)
+    return model
 
 
 def move_model_to_spyre(model, module, dtype: torch.dtype) -> None:
