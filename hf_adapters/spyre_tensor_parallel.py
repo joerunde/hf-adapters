@@ -277,7 +277,7 @@ class SpyreEmbeddingRowwiseParallel(_SpyreParallel):
     def install_forward(self, module: nn.Module, mesh: DeviceMesh) -> nn.Module:
         super().install_forward(module, mesh)
         group_name = mesh.get_group().group_name
-        weight = cast(torch.Tensor, module.weight)
+        weight = module.get_parameter("weight")
         local_size, vocab_start = Shard.local_shard_size_and_offset(
             weight.shape[0], mesh.size(), mesh.get_local_rank()
         )
@@ -537,11 +537,8 @@ class _ScalarSafeShardOperation(DtensorShardOperation):
         shape = source.shape if isinstance(source, torch.Tensor) else source.get_shape()
         if len(shape) == 0:
             return cast(torch.Tensor, source[...].to(device=device, dtype=dtype))
-        return cast(
-            torch.Tensor | None,
-            super().shard_tensor(
+        return super().shard_tensor(
                 source, tensor_idx=tensor_idx, device=device, dtype=dtype
-            ),
         )
 
 
@@ -603,7 +600,7 @@ def spyre_tp_loading(
         # original plan may name optional modules absent from this config (e.g.
         # Gemma 4 experts). Accept those known rules without merging the defaults
         # back in, but still reject unknown rules that match no actual name.
-        default_plan = cast(dict[str, str], getattr(model, "tp_plan", None) or {})
+        default_plan: dict[str, str] = getattr(model, "tp_plan", None) or {}
         names = {name for name, _ in model.named_modules()}
         names.update(name for name, _ in model.named_parameters())
         for rule in plan:
