@@ -537,11 +537,8 @@ class _ScalarSafeShardOperation(DtensorShardOperation):
         shape = source.shape if isinstance(source, torch.Tensor) else source.get_shape()
         if len(shape) == 0:
             return cast(torch.Tensor, source[...].to(device=device, dtype=dtype))
-        return cast(
-            torch.Tensor | None,
-            super().shard_tensor(
+        return super().shard_tensor(
                 source, tensor_idx=tensor_idx, device=device, dtype=dtype
-            ),
         )
 
 
