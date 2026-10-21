@@ -600,7 +600,7 @@ def spyre_tp_loading(
         # original plan may name optional modules absent from this config (e.g.
         # Gemma 4 experts). Accept those known rules without merging the defaults
         # back in, but still reject unknown rules that match no actual name.
-        default_plan = cast(dict[str, str], getattr(model, "tp_plan", None) or {})
+        default_plan: dict[str, str] = getattr(model, "tp_plan", None) or {}
         names = {name for name, _ in model.named_modules()}
         names.update(name for name, _ in model.named_parameters())
         for rule in plan:
