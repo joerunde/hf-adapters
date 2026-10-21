@@ -2408,7 +2408,8 @@ def spyre_compiled_all_reduce(tensor: torch.Tensor, group_name: str) -> torch.Te
     reduced: torch.Tensor = torch.ops._c10d_functional.all_reduce(
         tensor, "sum", group_name
     )
-    return cast(torch.Tensor, torch.ops._c10d_functional.wait_tensor(reduced))
+    result: torch.Tensor = torch.ops._c10d_functional.wait_tensor(reduced)
+    return result
 
 
 def get_model_dtype(model: nn.Module) -> torch.dtype:
