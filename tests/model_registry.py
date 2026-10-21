@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import types
+from typing import Any
 
 import pytest
 
@@ -571,7 +572,15 @@ TEXT_EMBEDDING_MODELS = {
 # ``tests/spyre/test_e2e_multimodal_embed_compare_spyre.py``. Kept separate from
 # ``TEXT_EMBEDDING_MODELS`` so membership alone identifies a multimodal embedder
 # — no per-entry modality flag is needed.
-MULTIMODAL_EMBEDDING_MODELS = {
+MULTIMODAL_EMBEDDING_MODELS: dict[str, dict[str, Any]] = {
+    # Dual-encoder: independent image/text embeddings, no interleaved inputs.
+    "clip_vit_b_32": {
+        "name": "clip-ViT-B-32",
+        "path": "sentence-transformers/clip-ViT-B-32",
+        "adapter": "hf_clip.py",
+        "size": "0.15b",
+        "supports_token_embeddings": False,
+    },
     # hf_embeddinggemma2.py
     "embeddinggemma2": {
         "name": "EmbeddingGemma 2",
@@ -588,7 +597,7 @@ MULTIMODAL_EMBEDDING_MODELS = {
 # All embedding models, used by generic text, load, and backend test harnesses.
 # Multimodal embedders also accept text, so they participate in these suites in
 # addition to the media-specific multimodal embedding harness.
-EMBEDDING_MODELS = {
+EMBEDDING_MODELS: dict[str, dict[str, Any]] = {
     **TEXT_EMBEDDING_MODELS,
     **MULTIMODAL_EMBEDDING_MODELS,
 }
@@ -755,14 +764,6 @@ VISION_MODELS = {
         "kind": "vlm",
         "size": "26b",
         "always_test": True,
-    },
-    # hf_clip.py — CLIP dual-encoder (image + text -> embeddings via ST backend)
-    "clip_vit_b_32": {
-        "name": "clip-ViT-B-32",
-        "path": "sentence-transformers/clip-ViT-B-32",
-        "adapter": "hf_clip.py",
-        "kind": "clip",  # dual-encoder: image or text -> embedding
-        "size": "0.15b",
     },
 }
 
@@ -942,13 +943,6 @@ VISION_PATHS: list[str] = _exclude(
         predicate=lambda info: info.get("kind") == "vlm",
     )
 )
-CLIP_PATHS: list[str] = _exclude(
-    _select_representative_paths(
-        VISION_MODELS,
-        include_gated=_include_gated_flag,
-        predicate=lambda info: info.get("kind") == "clip",
-    )
-)
 
 
 def _all_paths(
@@ -1023,13 +1017,6 @@ ALL_VISION_PATHS: list[str] = _exclude(
         VISION_MODELS,
         include_gated=_include_gated_flag,
         predicate=lambda info: info.get("kind") == "vlm",
-    )
-)
-ALL_CLIP_PATHS: list[str] = _exclude(
-    _all_paths(
-        VISION_MODELS,
-        include_gated=_include_gated_flag,
-        predicate=lambda info: info.get("kind") == "clip",
     )
 )
 

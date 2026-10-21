@@ -51,7 +51,7 @@ from tests.conftest import (
     resolve_adapter_module_for_test,
 )
 from tests.cpu.conftest import _unwrap_compiled_blocks, encode_padded, min_cosine
-from tests.model_registry import EMBED_PATHS, REMOTE_CODE_PATHS
+from tests.model_registry import EMBED_PATHS, EMBEDDING_MODELS, REMOTE_CODE_PATHS
 
 pytestmark = pytest.mark.model_harness("embedding")
 
@@ -107,6 +107,14 @@ def _run_prefill(
 
 @pytest.mark.parametrize("model_path", EMBED_PATHS, ids=EMBED_PATHS)
 def test_auto_loader(model_path: str, trust_remote_code: bool | None) -> None:
+    if any(
+        info["path"] == model_path and not info.get("supports_token_embeddings", True)
+        for info in EMBEDDING_MODELS.values()
+    ):
+        pytest.skip(
+            "This model exposes projected embeddings, not token hidden states; "
+            "covered by the ST and multimodal embedding accuracy tests"
+        )
     auto_spyre_model = sys.modules["hf_adapters.auto_spyre_model"]
     hf_common_mod = sys.modules["hf_adapters.hf_common"]
     if trust_remote_code is None:

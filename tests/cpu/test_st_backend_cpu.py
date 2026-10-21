@@ -167,14 +167,19 @@ def test_st_backend(model_path: str) -> None:
     import hf_adapters.st_backend  # noqa: F401  (registers "spyre" backend with ST)
 
     # Reference: stock ST on CPU
-    ref_model = SentenceTransformer(model_path, device="cpu")
+    dtype: torch.dtype = auto_spyre_model.dtype_for_model_path(model_path, "cpu")
+    ref_model = SentenceTransformer(
+        model_path, device="cpu", model_kwargs={"dtype": dtype}
+    )
     ref_embeddings = ref_model.encode(TEST_SENTENCES, convert_to_tensor=True)
     del ref_model
     gc.collect()
 
     # Spyre backend (DEVICE patched to cpu by conftest)
-    spyre_model = SentenceTransformer(model_path, backend="spyre", device="cpu")
-    _unwrap_compiled_blocks(spyre_model._first_module().model)
+    spyre_model = SentenceTransformer(
+        model_path, backend="spyre", device="cpu", model_kwargs={"dtype": dtype}
+    )
+    _unwrap_compiled_blocks(spyre_model)
     spyre_embeddings = spyre_model.encode(TEST_SENTENCES, convert_to_tensor=True)
     del spyre_model
     gc.collect()
@@ -185,3 +190,41 @@ def test_st_backend(model_path: str) -> None:
         f"min cosine {min_sim:.6f} < threshold {COS_SIM_THRESHOLD}; "
         f"per-sentence: {cos_sims.tolist()}"
     )
+
+
+@pytest.mark.parametrize("has_tokens", [False, True])
+def test_embedding_comparison_output_capabilities(has_tokens: bool) -> None:
+    from tests.spyre.test_e2e_embed_compare_spyre import _compare_results, _print_table
+
+    features: dict[str, torch.Tensor] = {"sentence_embedding": torch.tensor([1.0, 0.0])}
+    if has_tokens:
+        features.update(
+            token_embeddings=torch.tensor([[1.0, 0.0], [0.5, 0.5]]),
+            attention_mask=torch.ones(2),
+        )
+    rows = _compare_results(
+        [features], [features], "test/embedder", supports_token_embeddings=has_tokens
+    )
+    assert rows[0]["match"]
+    assert (rows[0]["min_cos"] is not None) == has_tokens
+    _print_table(rows)
+
+
+def test_embedding_comparison_rejects_missing_token_outputs() -> None:
+    from tests.spyre.test_e2e_embed_compare_spyre import _compare_results
+
+    features: dict[str, torch.Tensor] = {"sentence_embedding": torch.tensor([1.0, 0.0])}
+    with pytest.raises(AssertionError, match="expected token embeddings"):
+        _compare_results([features], [features], "test/token-embedder")
+
+
+def test_projected_embedding_comparison_checks_accuracy() -> None:
+    from tests.spyre.test_e2e_embed_compare_spyre import _compare_results
+
+    rows = _compare_results(
+        [{"sentence_embedding": torch.tensor([1.0, 0.0])}],
+        [{"sentence_embedding": torch.tensor([0.0, 1.0])}],
+        "test/projected-embedder",
+        supports_token_embeddings=False,
+    )
+    assert not rows[0]["match"]
