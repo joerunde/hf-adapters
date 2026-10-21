@@ -298,6 +298,30 @@ jobs:
           echo "Resolved torch-spyre origin/main -> ${SHA}"
           echo "torch_spyre_sha=${SHA}" >> "$GITHUB_OUTPUT"
 
+      # Prime the run's torch-spyre wheel cache (see
+      # .github/actions/build-hf-adapters/torch_spyre_wheel_cache.sh): run the
+      # same install every Spyre job runs, at the SHA just resolved, and publish
+      # the wheel uv built to /storage-1. Every job of this run (and its retries
+      # and re-runs) then installs that wheel instead of compiling torch-spyre
+      # (~80 s each). Best effort: a failure here only means jobs build as before.
+      - name: Checkout composite actions
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+
+      - name: Prime the torch-spyre wheel cache
+        uses: ./.github/actions/build-hf-adapters
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          TS_WHEEL_CACHE_ROLE: prime
+        with:
+          uv_groups: "dev spyre test"
+          ref: ${{ inputs.ref }}
+          repository: ${{ inputs.repository }}
+          torch_spyre_sha: ${{ steps.resolve.outputs.torch_spyre_sha }}
+
       - name: Record pinned SHA in the run summary
         run: |
           {
@@ -450,6 +474,10 @@ jobs:
           # Piped through env (not interpolated directly into the script) since
           # this is caller-supplied workflow_call input.
           ONLY_MODELS: ${{ inputs.models }}
+          # resolve_test_type.sh only defaults an empty value, so "perf" reaches us
+          # verbatim; matched here rather than via needs: resolve-test-type so matrix
+          # generation does not serialize behind it.
+          RAW_TEST_TYPE: ${{ inputs.test_type }}
         run: |
           # Standing exclusions live in tests/model_lists/exclude.yaml -- --exclude below is for one-off, dispatch-time excludes only.
           # Example: python .github/scripts/generate_test_matrix.py --exclude ibm-granite/granite-vision-4.1-4b
@@ -458,7 +486,13 @@ jobs:
             read -r -a ONLY_ARGS <<< "$ONLY_MODELS"
             ONLY_ARGS=(--only "${ONLY_ARGS[@]}")
           fi
-          python .github/scripts/generate_test_matrix.py "${ONLY_ARGS[@]}"
+          # Only perf gets --strict-perf: other tiers legitimately pass encoder and
+          # embedding paths, which perf cannot measure.
+          STRICT_ARGS=()
+          if [[ "$RAW_TEST_TYPE" == perf ]]; then
+            STRICT_ARGS=(--strict-perf)
+          fi
+          python .github/scripts/generate_test_matrix.py "${ONLY_ARGS[@]}" "${STRICT_ARGS[@]}"
 
   # ===========================================================================
   # Generates spyre-model-module-tests' matrix from the tests/configs/module_tests/
@@ -536,6 +570,16 @@ jobs:
           ref: ${{ inputs.ref || '' }}
           repository: ${{ inputs.repository != '' && inputs.repository || github.repository }}
 
+      # inputs.ref may predate #545, so this job's own checkout can lack the
+      # helper. Take it from the workflow ref into a path that checkout does
+      # not own, and source it from there.
+      - name: Checkout pod-stdout helper from the workflow ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: .pod-stdout
+          sparse-checkout: .github/scripts/run-with-pod-stdout.sh
+          sparse-checkout-cone-mode: false
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -544,8 +588,13 @@ jobs:
       - name: Run adapter coverage test
         run: |
           echo "Checking that all adapter files are registered in model_registry.py..."
-          python -m pip install --quiet pytest
-          source .github/scripts/run-with-pod-stdout.sh
+          # PyYAML is needed by tests/test_perf_coverage.py (run via adapter-coverage-tests), which reads perf.yaml.
+          python -m pip install --quiet pytest PyYAML
+          # Sourced from the workflow ref's copy, checked out above, because
+          # this job's own checkout is of inputs.ref and may predate #545.
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "$GITHUB_WORKSPACE/.pod-stdout/.github/scripts/run-with-pod-stdout.sh"
+
           run_teed make adapter-coverage-tests PYTEST="python -m pytest" JUNIT_XML=junit-adapter-coverage.xml
           echo "Adapter coverage check passed."
 
@@ -711,7 +760,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -746,7 +799,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_load_spyre.py for ${{ matrix.model_key }}..."
           run_teed make load-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-load-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -796,7 +850,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -831,7 +889,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_smoke_spyre.py for ${{ matrix.model_key }}..."
           run_teed make smoke-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-smoke-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -877,7 +936,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -919,7 +982,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed uv run --active --no-sync torchrun \
             --standalone \
             --nnodes=1 \
@@ -962,7 +1026,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -997,7 +1065,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_token_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make token-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-token-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1037,7 +1106,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1068,7 +1141,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make model-components-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' JUNIT_XML=junit-model-components.xml
           echo "tests done"
 
@@ -1113,7 +1187,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1148,7 +1226,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_embed_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make embed-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-embed-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1195,7 +1274,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1232,7 +1315,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_vlm_e2e_spyre.py for ${{ matrix.model_key }}..."
           run_teed make vlm-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-vlm-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1276,7 +1360,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1310,7 +1398,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_clip_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make clip-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-clip-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1418,7 +1507,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1451,7 +1544,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_reranker_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make reranker-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-reranker-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1496,7 +1590,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1529,7 +1627,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_masked_lm_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make masked-lm-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-masked-lm-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1574,7 +1673,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1607,7 +1710,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_question_answering_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make question-answering-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-question-answering-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1652,7 +1756,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1685,7 +1793,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_seq_classification_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make seq-classification-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-seq-classification-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1730,7 +1839,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1763,7 +1876,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_token_classification_compare_spyre.py for ${{ matrix.model_key }}..."
           run_teed make token-classification-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-token-classification-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -1894,7 +2008,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -1930,7 +2048,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running ${{ matrix.test_file }} for ${{ matrix.model_key }}..."
           run_teed make edge-cases-tests \
             PYTEST_ARGS='${{ inputs.extra_test_flags }}' \
@@ -1975,7 +2094,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2006,7 +2129,8 @@ jobs:
           if [[ ! -x "$UV_PROJECT_ENVIRONMENT/bin/spyre-perf-suite" ]]; then
             uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps /home/senuser/spyre-perf-suite
           fi
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make perf-tests MODEL_PATH="${{ matrix.model_key }}" RESULTS_DIR="$CLONED_HF_ADAPTERS_DIR/perf-results"
 
       # The shared ingest action runs `uv venv` in the workspace and fails if a .venv is already there.
@@ -2066,7 +2190,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2098,7 +2226,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make model-module-tests MODULE_CONFIG=${{ matrix.config }} \
             MODULE_TEST_FILTER='${{ matrix.pytest_filter }}' PYTEST_ARGS='${{ inputs.extra_test_flags }}' \
             JUNIT_XML=1 RESULTS_DIR=.
@@ -2138,7 +2267,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2163,7 +2296,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make model-support-tests RESULTS_DIR=model-support-results
 
       - name: Upload JUnit results
@@ -2331,7 +2465,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2365,7 +2503,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_load_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make load-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-load-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2405,7 +2544,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2439,7 +2582,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_smoke_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make smoke-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-smoke-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2481,7 +2625,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2521,7 +2669,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed uv run --active --no-sync torchrun \
             --standalone \
             --nnodes=1 \
@@ -2549,7 +2698,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2583,7 +2736,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_token_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make token-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-token-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2623,7 +2777,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2654,7 +2812,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make model-components-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' JUNIT_XML=junit-model-components.xml
           echo "tests done"
 
@@ -2692,7 +2851,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2726,7 +2889,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_embed_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make embed-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-embed-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2765,7 +2929,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2801,7 +2969,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_vlm_e2e_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make vlm-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-vlm-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2843,7 +3012,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2877,7 +3050,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_clip_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make clip-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-clip-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2916,7 +3090,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -2949,7 +3127,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_reranker_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make reranker-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-reranker-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -2988,7 +3167,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3021,7 +3204,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_masked_lm_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make masked-lm-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-masked-lm-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -3060,7 +3244,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3093,7 +3281,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_question_answering_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make question-answering-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-question-answering-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -3132,7 +3321,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3165,7 +3358,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_seq_classification_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make seq-classification-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-seq-classification-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -3204,7 +3398,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3237,7 +3435,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running test_e2e_token_classification_compare_spyre.py for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make token-classification-compare-tests PYTEST_ARGS='${{ inputs.extra_test_flags }}' MODEL_PATH="${{ matrix.model_key }}" JUNIT_XML=junit-token-classification-compare-${{ matrix.model_key }}.xml
           echo "tests done"
@@ -3339,7 +3538,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3375,7 +3578,8 @@ jobs:
           source "$HOME/.bashrc"
           source /etc/profile.d/ibm-aiu-setup.sh
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           echo "Running ${{ matrix.test_file }} for ${{ matrix.model_key }} (pod-level retry)..."
           run_teed make edge-cases-tests \
             PYTEST_ARGS='${{ inputs.extra_test_flags }}' \
@@ -3418,7 +3622,11 @@ jobs:
       - name: Checkout composite actions
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: .github/actions
+          # The helper is sourced via $POD_STDOUT_HELPER, stashed by
+          # build-hf-adapters from this checkout before it wipes the workspace.
+          sparse-checkout: |
+            .github/actions
+            .github/scripts/run-with-pod-stdout.sh
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/build-hf-adapters
@@ -3449,7 +3657,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           cd "$CLONED_HF_ADAPTERS_DIR"
-          source .github/scripts/run-with-pod-stdout.sh
+          # shellcheck source=.github/scripts/run-with-pod-stdout.sh
+          source "${POD_STDOUT_HELPER:-.github/scripts/run-with-pod-stdout.sh}"
           run_teed make model-module-tests MODULE_CONFIG=${{ matrix.config }} \
             MODULE_TEST_FILTER='${{ matrix.pytest_filter }}' PYTEST_ARGS='${{ inputs.extra_test_flags }}' \
             JUNIT_XML=1 RESULTS_DIR=.
