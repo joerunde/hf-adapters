@@ -26,6 +26,7 @@ from safetensors.torch import save_file
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, _StridedShard
+from transformers.distributed import tensor_parallel
 from transformers.distributed.sharding_utils import DtensorShardOperation
 from transformers.distributed.tensor_parallel import ALL_PARALLEL_STYLES
 
@@ -170,6 +171,85 @@ def test_colwise_embedding_styles_are_rejected(style: str) -> None:
         prepare_spyre_tp_plan(_ToyModel(), {"model.embed_tokens": style})
     register_spyre_tp_styles()
     assert SPYRE_EMBEDDING_COLWISE not in ALL_PARALLEL_STYLES
+
+
+@pytest.mark.parametrize(
+    "rule",
+    ("model.embed_tokens", "model.embed_tokens.weight"),
+)
+@pytest.mark.parametrize(
+    "style", ("colwise", "colwise_gather_output", "rowwise", SPYRE_COLWISE)
+)
+def test_linear_styles_on_embeddings_are_rejected(rule: str, style: str) -> None:
+    with pytest.raises(ValueError, match="would shard the hidden dimension"):
+        prepare_spyre_tp_plan(_ToyModel(), {rule: style})
+
+
+class _LayeredEmbeddingModel(nn.Module):
+    def __init__(self, layer_count: int) -> None:
+        super().__init__()
+        self.model = nn.Module()
+        self.model.layers = nn.ModuleList()
+        for _ in range(layer_count):
+            layer = nn.Module()
+            layer.embed_tokens = nn.Embedding(64, 16)
+            self.model.layers.append(layer)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    ("model.layers.*.embed_tokens", "model.layers.*.embed_tokens.weight"),
+)
+def test_wildcard_colwise_embedding_rule_is_rejected(rule: str) -> None:
+    with pytest.raises(ValueError, match="model.layers.0.embed_tokens"):
+        prepare_spyre_tp_plan(_LayeredEmbeddingModel(2), {rule: "colwise"})
+
+
+@pytest.mark.parametrize(
+    "wildcard_rule",
+    ("model.layers.*.embed_tokens", "model.layers.*.embed_tokens.weight"),
+)
+@pytest.mark.parametrize(
+    "exact_rule",
+    ("model.layers.0.embed_tokens", "model.layers.0.embed_tokens.weight"),
+)
+def test_exact_safe_embedding_rule_overrides_wildcard_colwise(
+    wildcard_rule: str, exact_rule: str
+) -> None:
+    plan = prepare_spyre_tp_plan(
+        _LayeredEmbeddingModel(1),
+        {
+            wildcard_rule: "colwise",
+            exact_rule: "embedding_rowwise",
+        },
+    )
+
+    with _prefer_exact_tp_plan_entries():
+        effective_style = tensor_parallel._get_parameter_plan(
+            "model.layers.0.embed_tokens.weight", plan
+        )
+    assert effective_style == SPYRE_EMBEDDING_ROWWISE
+
+
+def test_wildcard_colwise_still_rejects_uncovered_embedding_layer() -> None:
+    with pytest.raises(ValueError, match="model.layers.1.embed_tokens"):
+        prepare_spyre_tp_plan(
+            _LayeredEmbeddingModel(2),
+            {
+                "model.layers.*.embed_tokens": "colwise",
+                "model.layers.0.embed_tokens": "embedding_rowwise",
+            },
+        )
+
+
+def test_adapter_replicated_embedding_overrides_a_caller_colwise_rule() -> None:
+    result = prepare_spyre_tp_plan(
+        _ToyModel(),
+        {"model.embed_tokens": "colwise"},
+        replicated_embedding_modules={"model.embed_tokens"},
+    )
+
+    assert result["model.embed_tokens"] == SPYRE_REPLICATED_EMBEDDING
 
 
 def test_resolve_tp_plan_forwards_trust_remote_code(monkeypatch):

@@ -444,6 +444,59 @@ def _matches_plan(parameter_name: str, plan: Mapping[str, str]) -> bool:
     return alternation.search(parameter_name) is not None
 
 
+# Embedding styles that keep every rank's lookup full-width: vocabulary
+# sharding all-reduces complete rows, and the replicated styles do not shard.
+_EMBEDDING_SAFE_STYLES = frozenset(
+    {
+        SPYRE_EMBEDDING_ROWWISE,
+        SPYRE_REPLICATED,
+        SPYRE_REPLICATED_LINEAR,
+        SPYRE_REPLICATED_EMBEDDING,
+        SPYRE_CPU_REPLICATED,
+    }
+)
+
+
+def _embedding_weight_style(module_name: str, plan: Mapping[str, str]) -> str | None:
+    """Resolve an embedding weight's style the way loading looks it up.
+
+    Exact parameter and module entries win (``_prefer_exact_tp_plan_entries``),
+    then HF's layer-index-generic names.
+    """
+    generic_name = replace_layer_number_by_wildcard(module_name)
+    for key in (
+        f"{module_name}.weight",
+        module_name,
+        f"{generic_name}.weight",
+        generic_name,
+    ):
+        if key in plan:
+            return plan[key]
+    return None
+
+
+def _reject_hidden_sharded_embeddings(
+    named_modules: Mapping[str, nn.Module], plan: Mapping[str, str]
+) -> None:
+    """Reject plans that would shard an embedding's hidden dimension.
+
+    A Linear style such as ``colwise`` (``Shard(1)`` for an embedding) or
+    ``rowwise`` (``Shard(-1)``) on an embedding is ``embedding_colwise`` under
+    another name: each rank would return a partial-width lookup.
+    """
+    for name, module in named_modules.items():
+        if not isinstance(module, nn.Embedding):
+            continue
+        style = _embedding_weight_style(name, plan)
+        if style is not None and style not in _EMBEDDING_SAFE_STYLES:
+            raise ValueError(
+                f"Spyre TP cannot apply {style!r} to embedding {name!r}: it would "
+                "shard the hidden dimension, which requires a verified full-width "
+                "output gather. Use replicated embeddings or 'embedding_rowwise' "
+                "instead."
+            )
+
+
 def prepare_spyre_tp_plan(
     model: nn.Module,
     plan: Mapping[str, str],
@@ -504,6 +557,10 @@ def prepare_spyre_tp_plan(
         elif isinstance(module, nn.Linear):
             rewritten.setdefault(generic_name, SPYRE_REPLICATED_LINEAR)
 
+    # Checked after the adapter overrides, which may replicate an embedding the
+    # caller planned; any remaining non-vocabulary style is hidden sharding.
+    _reject_hidden_sharded_embeddings(named_modules, rewritten)
+
     unsupported = (
         set(rewritten.values())
         - _STYLE_INSTANCES.keys()
@@ -538,7 +595,7 @@ class _ScalarSafeShardOperation(DtensorShardOperation):
         if len(shape) == 0:
             return cast(torch.Tensor, source[...].to(device=device, dtype=dtype))
         return super().shard_tensor(
-                source, tensor_idx=tensor_idx, device=device, dtype=dtype
+            source, tensor_idx=tensor_idx, device=device, dtype=dtype
         )
 
 
