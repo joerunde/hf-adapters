@@ -109,7 +109,7 @@ def _spyre_load_model(
     # Route to the right prefill driver. Encoder-only adapters set
     # _is_encoder_only = True; decoder adapters leave it absent.
     is_encoder_only = getattr(adapter_module, "_is_encoder_only", False)
-    preserve_native_forward: bool = getattr(
+    _provides_embedding_forward: bool = getattr(
         adapter_module, "_preserve_native_forward", False
     )
 
@@ -117,7 +117,7 @@ def _spyre_load_model(
     # text-only prefill wrapper. Multimodal adapters keep their native top-level
     # forward so it can merge media features, while their prepared inner
     # backbones still run on Spyre.
-    if not preserve_native_forward:
+    if not _provides_embedding_forward:
         if is_encoder_only:
 
             def _spyre_forward(
@@ -169,7 +169,7 @@ def _spyre_load_model(
     _original_transformer_forward = self.forward
 
     def _cpu_pooling_forward(features: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        if preserve_native_forward:
+        if _provides_embedding_forward:
             features = {key: _to_cpu(value) for key, value in features.items()}
         features = _original_transformer_forward(features, **kwargs)
         for key, value in features.items():

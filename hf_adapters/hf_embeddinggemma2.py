@@ -80,9 +80,8 @@ def _make_compiled_block(layer: Any) -> Callable[..., torch.Tensor]:
         h = h + layer.post_feedforward_layernorm(
             layer.mlp(layer.pre_feedforward_layernorm(h))
         )
-        return cast(
-            torch.Tensor, layer.ple_block(h, per_layer_input) * layer.layer_scalar
-        )
+        output: torch.Tensor = layer.ple_block(h, per_layer_input) * layer.layer_scalar
+        return output
 
     return torch.compile(block_forward, dynamic=False)
 
