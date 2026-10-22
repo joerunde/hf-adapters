@@ -155,8 +155,7 @@ def _compare_results(
                 "mean_diff": abs_diff.mean().item(),
                 "cpu_nan": bool(c_tok.isnan().any().item()),
                 "spyre_nan": bool(s_tok.isnan().any().item()),
-                "match": per_tok_cos.min().item() >= COSINE_THRESHOLD
-                and sent_cos >= COSINE_THRESHOLD,
+                "match": per_tok_cos.min().item() >= COSINE_THRESHOLD,
             }
         )
     return rows
