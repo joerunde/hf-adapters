@@ -333,7 +333,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         id: uv-cache
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ steps.uv-key.outputs.salt }}
@@ -355,7 +355,7 @@ jobs:
       # Gated on the install itself: the step above is continue-on-error.
       - name: Save uv cache (NFS)
         if: steps.prime.outcome == 'success'
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/save@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/save@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key: ${{ steps.uv-cache.outputs.cache-key }}
@@ -813,7 +813,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -911,7 +911,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1005,7 +1005,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1103,7 +1103,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1191,7 +1191,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1280,7 +1280,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1375,7 +1375,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1469,7 +1469,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1624,7 +1624,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1715,7 +1715,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1806,7 +1806,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1897,7 +1897,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -1988,7 +1988,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2100,7 +2100,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2194,7 +2194,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2298,7 +2298,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2383,7 +2383,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2585,7 +2585,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2672,7 +2672,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2761,7 +2761,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2842,7 +2842,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -2929,7 +2929,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3011,7 +3011,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3097,7 +3097,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3188,7 +3188,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3274,7 +3274,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3359,7 +3359,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3444,7 +3444,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3529,7 +3529,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3614,7 +3614,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3699,7 +3699,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
@@ -3791,7 +3791,7 @@ jobs:
 
       - name: Restore uv cache (NFS)
         if: ${{ !inputs.prebaked_image }}
-        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@dd59d5ecfaa6688e90e9c7e657d207b37454546d
+        uses: torch-spyre/spyre-inference/.github/actions/uv-nfs-cache/restore@38d01a630cbac8f5014df9627a0963e4e72439f8
         with:
           storage-root: ${{ env.UV_NFS_CACHE_ROOT }}
           key-salt: ${{ needs.resolve-torch-spyre.outputs.uv_cache_salt }}
